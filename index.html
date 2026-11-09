@@ -4,221 +4,260 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="SpectralFlow is an offline 2D lattice Boltzmann wind tunnel and NACA airfoil analyzer with live vorticity, pressure, and force telemetry.">
-<title>SpectralFlow | D2Q9 Lattice Boltzmann Wind Tunnel</title>
+<meta name="description" content="SpectralFlow: offline D2Q9 lattice Boltzmann wind tunnel and NACA 4-digit airfoil test bench with Schlieren vorticity, surface Cp integration, wake profiles, and force telemetry.">
+<title>SpectralFlow | D2Q9 Lattice Boltzmann Wind Tunnel &amp; NACA Section Bench</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip-link" href="#workbench">Skip to the workbench</a>
+<a class="skip-link" href="#workbench">Skip to wind tunnel test bench</a>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 40 40" width="40" height="40" role="presentation" focusable="false">
-        <path d="M3 13 C 11 5, 18 21, 37 11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-        <path d="M3 21 C 12 13, 19 29, 37 19" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.72"/>
-        <path d="M3 29 C 13 21, 20 37, 37 27" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.44"/>
-        <circle cx="14" cy="20" r="3.4" fill="currentColor"/>
-      </svg>
-    </span>
-    <div>
-      <h1>SpectralFlow</h1>
-      <p class="tagline">D2Q9 LBM wind tunnel and NACA 4 digit analyzer</p>
-    </div>
+<header class="report-header">
+  <div class="report-title-block">
+    <div class="report-id">Report No. SF-D2Q9-2412 &middot; Two-Dimensional Low-Speed Wind Tunnel Bench</div>
+    <h1>SpectralFlow: D2Q9 Lattice Boltzmann Wind Tunnel &amp; NACA 4-Digit Airfoil Analyzer</h1>
+    <p class="report-sub">Discrete 9-velocity Bhatnagar-Gross-Krook solver (220 &times; 92 lattice), Zou-He velocity inlet, halfway bounce-back solid links, and momentum-exchange force telemetry.</p>
   </div>
-  <div class="topbar-actions">
-    <span class="offline-badge" id="offlineBadge"><span class="dot" aria-hidden="true"></span>Offline ready</span>
-    <button type="button" id="themeToggle" class="btn btn-ghost" aria-pressed="false">
-      <span class="theme-icon" aria-hidden="true">&#9680;</span><span id="themeLabel">Dark theme</span>
+  <div class="header-actions no-print">
+    <span class="status-readout" id="offlineBadge">Local kernel &middot; 0 network calls</span>
+    <button type="button" id="themeToggle" class="btn" aria-pressed="false">
+      <span id="themeLabel">Schlieren darkroom</span>
     </button>
-    <button type="button" id="printBtn" class="btn btn-ghost no-print">Print report</button>
+    <button type="button" id="printBtn" class="btn">Print technical report</button>
   </div>
 </header>
 
 <main id="workbench">
-  <section class="intro" aria-labelledby="introHeading">
-    <h2 id="introHeading">Computational fluid dynamics, in your browser</h2>
-    <p>A lattice Boltzmann solver streams nine discrete particle populations across a 2D grid, collides them toward local equilibrium, and reflects them at solid walls. Choose a NACA section or a bluff body, adjust the angle of attack and Reynolds number, and watch the wake form. Everything runs locally with no network requests and no build step.</p>
-  </section>
+  <section class="bench-controls" aria-label="Tunnel operating conditions">
+    <div class="section-bar">
+      <h2>Table I. Wind Tunnel Operating Conditions &amp; Model Geometry</h2>
+      <div class="run-controls no-print">
+        <button type="button" id="runToggle" class="btn btn-primary" aria-pressed="true">Pause tunnel</button>
+        <button type="button" id="stepBtn" class="btn">Step +20</button>
+        <button type="button" id="resetBtn" class="btn">Reset state</button>
+      </div>
+    </div>
 
-  <section class="controls" aria-label="Simulation controls">
     <div class="control-grid">
       <div class="control-field">
-        <label for="obstacleKind">Obstacle</label>
+        <label for="obstacleKind">Test section model</label>
         <select id="obstacleKind">
-          <option value="naca0012" selected>NACA 0012 symmetric airfoil</option>
-          <option value="naca2412">NACA 2412 cambered airfoil</option>
-          <option value="naca4415">NACA 4415 high camber</option>
-          <option value="cylinder">Cylinder (Karman vortex street)</option>
-          <option value="bluff">Bluff body</option>
-          <option value="venturi">Venturi nozzle</option>
-          <option value="custom">Custom NACA 4 digit</option>
+          <option value="naca0012">NACA 0012 (symmetric, 12% thickness)</option>
+          <option value="naca2412" selected>NACA 2412 (2% camber at 0.4c)</option>
+          <option value="naca4415">NACA 4415 (4% camber at 0.4c)</option>
+          <option value="cylinder">Circular cylinder (Karman wake)</option>
+          <option value="bluff">Rectangular bluff body</option>
+          <option value="venturi">Venturi constriction channel</option>
+          <option value="custom">Custom NACA 4-digit section</option>
         </select>
       </div>
       <div class="control-field" id="customCodeField" hidden>
-        <label for="customCode">NACA code</label>
+        <label for="customCode">NACA 4-digit designation</label>
         <input type="text" id="customCode" value="2309" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" spellcheck="false" aria-describedby="customCodeHelp">
-        <small id="customCodeHelp">Four digits: camber, position, thickness</small>
+        <small id="customCodeHelp">Digits MPXX: camber %, position tenths, thickness %</small>
       </div>
       <div class="control-field">
-        <label for="angleRange">Angle of attack <output id="angleValue" for="angleRange">6&deg;</output></label>
+        <label for="angleRange">Angle of attack &alpha; <output id="angleValue" for="angleRange">6&deg;</output></label>
         <input type="range" id="angleRange" min="-20" max="20" step="1" value="6">
       </div>
       <div class="control-field">
-        <label for="speedRange">Inflow speed <output id="speedValue" for="speedRange">0.080</output></label>
+        <label for="speedRange">Inflow speed u<sub>0</sub> <output id="speedValue" for="speedRange">0.080</output></label>
         <input type="range" id="speedRange" min="0.01" max="0.14" step="0.005" value="0.08">
       </div>
       <div class="control-field">
-        <label for="viscosityRange">Kinematic viscosity <output id="viscosityValue" for="viscosityRange">0.020</output></label>
+        <label for="viscosityRange">Kinematic viscosity &nu; <output id="viscosityValue" for="viscosityRange">0.020</output></label>
         <input type="range" id="viscosityRange" min="0.006" max="0.09" step="0.002" value="0.02">
       </div>
       <div class="control-field">
-        <label for="chordRange">Chord length <output id="chordValue" for="chordRange">77 px</output></label>
+        <label for="chordRange">Model chord c <output id="chordValue" for="chordRange">77 px</output></label>
         <input type="range" id="chordRange" min="30" max="110" step="1" value="77">
       </div>
     </div>
-    <div class="control-footer">
-      <div class="run-controls">
-        <button type="button" id="runToggle" class="btn btn-primary" aria-pressed="true">Pause simulation</button>
-        <button type="button" id="stepBtn" class="btn">Step 20</button>
-        <button type="button" id="resetBtn" class="btn">Reset flow</button>
+
+    <div class="telemetry-strip" aria-label="Primary aerodynamic balances">
+      <div class="telemetry-cell">
+        <span class="telemetry-name">Reynolds number Re</span>
+        <strong class="telemetry-val" id="statRe">--</strong>
+        <span class="telemetry-meta" id="statReNote">u0 L / nu</span>
       </div>
-      <div class="view-controls" role="group" aria-label="Field view">
-        <span class="group-label">Field</span>
-        <div class="segmented" role="radiogroup" aria-label="Flow field visualization">
-          <button type="button" class="seg" data-field="curl" role="radio" aria-checked="true">Vorticity</button>
-          <button type="button" class="seg" data-field="speed" role="radio" aria-checked="false">Velocity</button>
-          <button type="button" class="seg" data-field="cp" role="radio" aria-checked="false">Pressure</button>
-          <button type="button" class="seg" data-field="tracers" role="radio" aria-checked="false">Tracers</button>
-        </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-name">Mean drag coefficient C<sub>d</sub></span>
+        <strong class="telemetry-val" id="statCd">--</strong>
+        <span class="telemetry-meta">momentum exchange</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-name">Mean lift coefficient C<sub>l</sub></span>
+        <strong class="telemetry-val" id="statCl">--</strong>
+        <span class="telemetry-meta" id="statClNote">160-sample window</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-name">Lift-to-drag ratio L/D</span>
+        <strong class="telemetry-val" id="statLd">--</strong>
+        <span class="telemetry-meta" id="statTime">step 0</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-name">BGK relaxation &tau; / &omega;</span>
+        <strong class="telemetry-val" id="statTau">--</strong>
+        <span class="telemetry-meta" id="statMach">Ma = --</span>
       </div>
     </div>
   </section>
 
-  <section class="stat-row" aria-label="Live diagnostics">
-    <article class="stat-tile"><p class="stat-label">Reynolds number</p><p class="stat-value" id="statRe">--</p><p class="stat-note" id="statReNote">u0 L / nu</p></article>
-    <article class="stat-tile"><p class="stat-label">Mean drag Cd</p><p class="stat-value" id="statCd">--</p><p class="stat-note">momentum exchange</p></article>
-    <article class="stat-tile"><p class="stat-label">Mean lift Cl</p><p class="stat-value" id="statCl">--</p><p class="stat-note">windowed average</p></article>
-    <article class="stat-tile"><p class="stat-label">Lift over drag</p><p class="stat-value" id="statLd">--</p><p class="stat-note" id="statTime">step 0</p></article>
-  </section>
-
-  <section class="panel flow-panel" aria-labelledby="flowHeading">
-    <div class="panel-head">
+  <section class="report-figure flow-figure" aria-labelledby="flowHeading">
+    <div class="figure-head">
       <div>
-        <h2 id="flowHeading">Live flow field</h2>
-        <p class="panel-sub" id="fieldDescription">Screen-space vorticity, clockwise and counterclockwise shear on a diverging scale.</p>
+        <h2 id="flowHeading">Figure 1. Wind-Tunnel Test Section &amp; Optical Schlieren / Field Viewport (220 &times; 92 Lattice)</h2>
+        <p class="figure-sub" id="fieldDescription">Screen-space vorticity d(u_y)/dx - d(u_x)/dy on a diverging scale. Solid boundary links use halfway bounce-back.</p>
       </div>
-      <div class="panel-head-meta">
-        <span id="fieldScaleLabel" class="scale-caption">curl range</span>
-        <button type="button" id="textureToggle" class="btn btn-ghost btn-small" aria-pressed="false">Texture mode</button>
+      <div class="figure-controls no-print">
+        <div class="segmented" role="radiogroup" aria-label="Optical field diagnostic">
+          <button type="button" class="seg" data-field="curl" role="radio" aria-checked="true">Vorticity (&omega;<sub>z</sub>)</button>
+          <button type="button" class="seg" data-field="schlieren" role="radio" aria-checked="false">Schlieren (|&nabla;&rho;|)</button>
+          <button type="button" class="seg" data-field="cp" role="radio" aria-checked="false">Pressure (C<sub>p</sub>)</button>
+          <button type="button" class="seg" data-field="speed" role="radio" aria-checked="false">Speed (|u|)</button>
+          <button type="button" class="seg" data-field="tracers" role="radio" aria-checked="false">Smoke tracers</button>
+        </div>
+        <button type="button" id="textureToggle" class="btn btn-small" aria-pressed="false">Hatching</button>
       </div>
     </div>
-    <div class="canvas-wrap">
-      <canvas id="flowCanvas" width="720" height="300" role="img" aria-label="Live lattice Boltzmann flow field around the selected obstacle. The data table below provides the same values.">Your browser does not support canvas. Use the data tables below.</canvas>
-      <div id="fieldTooltip" class="field-tooltip" role="status" aria-live="off" hidden></div>
+
+    <div class="tunnel-frame">
+      <div class="tunnel-rulers-top" aria-hidden="true">
+        <span>Inlet x = 0 (Zou-He u<sub>0</sub>)</span>
+        <span>Quarter-chord pivot x/c = 0.25</span>
+        <span>Wake rake x = 0.75 L<sub>x</sub></span>
+        <span>Convective outlet x = 219</span>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="flowCanvas" width="880" height="368" role="img" aria-label="Live lattice Boltzmann wind tunnel test section around the selected obstacle. Data tables below provide the numerical readings.">Your browser does not support HTML5 canvas. Refer to the tabular data below.</canvas>
+        <div id="fieldTooltip" class="field-tooltip" role="status" aria-live="off" hidden></div>
+      </div>
     </div>
-    <div class="legend-bar" id="legendBar" aria-label="Field color scale"></div>
-    <p class="canvas-foot">Left inlet drives flow to the right. Solid cells are drawn in neutral ink. Values are lattice units.</p>
+
+    <div class="figure-foot">
+      <div class="legend-bar" id="legendBar" aria-label="Field color scale"></div>
+      <span id="fieldScaleLabel" class="scale-caption">curl range</span>
+    </div>
   </section>
 
-  <div class="chart-grid">
-    <section class="panel" aria-labelledby="wakeHeading">
-      <div class="panel-head">
+  <div class="plot-matrix">
+    <section class="report-figure" aria-labelledby="cpHeading">
+      <div class="figure-head">
         <div>
-          <h2 id="wakeHeading">Wake velocity profile</h2>
-          <p class="panel-sub">Streamwise velocity u_x across the tunnel at 75 percent chord position.</p>
+          <h2 id="cpHeading">Figure 2. Chordwise Surface Pressure Distribution C<sub>p</sub>(x/c)</h2>
+          <p class="figure-sub">Upper and lower surface pressure sampled one fluid link off the solid raster; aerodynamic convention plots &minus;C<sub>p</sub> upward.</p>
         </div>
-        <span class="panel-tag">x = <span id="wakeXLabel">--</span></span>
+        <span class="figure-tag" id="cpIntegralLabel">C<sub>l,p</sub> = --</span>
       </div>
       <div class="chart-host">
-        <svg id="wakeChart" viewBox="0 0 520 260" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="wakeChartTitle wakeChartDesc">
-          <title id="wakeChartTitle">Wake profile of streamwise velocity</title>
-          <desc id="wakeChartDesc">Line chart of streamwise velocity against transverse position, with a dashed reference line at the free stream speed. The accessible data table below lists every sample.</desc>
+        <svg id="cpChart" viewBox="0 0 540 260" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="cpChartTitle cpChartDesc">
+          <title id="cpChartTitle">Chordwise surface pressure coefficient distribution</title>
+          <desc id="cpChartDesc">Upper and lower surface pressure coefficient plotted against normalized chord position x/c from leading edge to trailing edge.</desc>
+        </svg>
+      </div>
+      <div class="legend" aria-label="Surface pressure series">
+        <span class="legend-item"><span class="legend-line" style="--line: var(--series-1)" aria-hidden="true"></span>Upper surface C<sub>p,u</sub></span>
+        <span class="legend-item"><span class="legend-line" style="--line: var(--series-2)" aria-hidden="true"></span>Lower surface C<sub>p,l</sub></span>
+      </div>
+    </section>
+
+    <section class="report-figure" aria-labelledby="wakeHeading">
+      <div class="figure-head">
+        <div>
+          <h2 id="wakeHeading">Figure 3. Downstream Wake Traverse Profile u<sub>x</sub>(y)</h2>
+          <p class="figure-sub">Streamwise velocity rake across the tunnel height at 75% tunnel length showing momentum deficit behind the model.</p>
+        </div>
+        <span class="figure-tag">Station x = <span id="wakeXLabel">--</span></span>
+      </div>
+      <div class="chart-host">
+        <svg id="wakeChart" viewBox="0 0 540 260" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="wakeChartTitle wakeChartDesc">
+          <title id="wakeChartTitle">Wake velocity rake profile</title>
+          <desc id="wakeChartDesc">Streamwise velocity u_x plotted against transverse tunnel row j, with a dashed reference line at free-stream velocity u0.</desc>
         </svg>
         <div id="wakeTooltip" class="tooltip" role="status" aria-live="off" hidden></div>
       </div>
-      <p class="chart-caption">A deficit near the centerline marks momentum extracted by the body.</p>
       <details class="table-details" id="wakeTableDetails">
-        <summary>Wake profile data table</summary>
+        <summary>Table II. Wake Rake Numerical Data</summary>
         <div class="table-scroll">
-          <table id="wakeTable"><caption>Streamwise velocity by transverse grid position</caption></table>
+          <table id="wakeTable"><caption>Streamwise velocity and pressure by transverse row j</caption></table>
         </div>
       </details>
     </section>
 
-    <section class="panel" aria-labelledby="forceHeading">
-      <div class="panel-head">
+    <section class="report-figure" aria-labelledby="forceHeading">
+      <div class="figure-head">
         <div>
-          <h2 id="forceHeading">Force history</h2>
-          <p class="panel-sub">Drag and lift coefficients over simulation time, one shared axis.</p>
+          <h2 id="forceHeading">Figure 4. Aerodynamic Balance Force History C<sub>d</sub>(t), C<sub>l</sub>(t)</h2>
+          <p class="figure-sub">Instantaneous drag and lift coefficients from link momentum exchange F = &sum; 2 c<sub>i</sub> f<sub>i</sub><sup>*</sup> across reflected solid links.</p>
         </div>
-        <span class="panel-tag" id="forceSamplesLabel">0 samples</span>
+        <span class="figure-tag" id="forceSamplesLabel">0 samples</span>
       </div>
       <div class="chart-host">
-        <svg id="forceChart" viewBox="0 0 520 260" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="forceChartTitle forceChartDesc">
-          <title id="forceChartTitle">Drag and lift coefficient history</title>
-          <desc id="forceChartDesc">Two line series, drag coefficient and lift coefficient, plotted on one dimensionless axis against simulation step. The accessible data table below lists every sample.</desc>
+        <svg id="forceChart" viewBox="0 0 540 260" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="forceChartTitle forceChartDesc">
+          <title id="forceChartTitle">Drag and lift coefficient time history</title>
+          <desc id="forceChartDesc">Two time series showing instantaneous drag coefficient Cd and lift coefficient Cl against simulation time step.</desc>
         </svg>
         <div id="forceTooltip" class="tooltip" role="status" aria-live="off" hidden></div>
       </div>
-      <div class="legend" id="forceLegend" aria-label="Force series legend">
-        <span class="legend-item"><span class="legend-line" style="--line: var(--series-1)" aria-hidden="true"></span>Drag Cd</span>
-        <span class="legend-item"><span class="legend-line" style="--line: var(--series-2)" aria-hidden="true"></span>Lift Cl</span>
+      <div class="legend" id="forceLegend" aria-label="Force balance series">
+        <span class="legend-item"><span class="legend-line" style="--line: var(--series-1)" aria-hidden="true"></span>Drag coefficient C<sub>d</sub></span>
+        <span class="legend-item"><span class="legend-line" style="--line: var(--series-2)" aria-hidden="true"></span>Lift coefficient C<sub>l</sub></span>
       </div>
       <details class="table-details" id="forceTableDetails">
-        <summary>Force history data table</summary>
+        <summary>Table III. Force Balance Time-Series Data</summary>
         <div class="table-scroll">
-          <table id="forceTable"><caption>Instantaneous and windowed force coefficients by step</caption></table>
+          <table id="forceTable"><caption>Instantaneous force coefficients by lattice step</caption></table>
+        </div>
+      </details>
+    </section>
+
+    <section class="report-figure" aria-labelledby="sectionHeading">
+      <div class="figure-head">
+        <div>
+          <h2 id="sectionHeading">Figure 5. Airfoil Ordinates &amp; Section Lift-Drag Polar Reference</h2>
+          <p class="figure-sub" id="sectionSub">Exact NACA 4-digit thickness and mean camber polynomials at cosine-clustered stations, with operating point marked on the section polar.</p>
+        </div>
+        <div class="export-row no-print">
+          <button type="button" id="csvBtn" class="btn btn-small">Wake CSV</button>
+          <button type="button" id="forceCsvBtn" class="btn btn-small">Force CSV</button>
+          <button type="button" id="jsonBtn" class="btn btn-small">Snapshot JSON</button>
+        </div>
+      </div>
+      <div class="section-layout">
+        <div class="section-figure">
+          <svg id="sectionChart" viewBox="0 0 540 220" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="sectionChartTitle sectionChartDesc">
+            <title id="sectionChartTitle">Airfoil section profile and polar operating point</title>
+            <desc id="sectionChartDesc">Airfoil upper and lower ordinates with mean camber line and live operating point.</desc>
+          </svg>
+        </div>
+        <div class="spec-list" id="specList" aria-label="Model specification table"></div>
+      </div>
+      <details class="table-details" id="sectionTableDetails">
+        <summary>Table IV. Section Ordinate Coordinates (x/c, y<sub>u</sub>/c, y<sub>l</sub>/c)</summary>
+        <div class="table-scroll">
+          <table id="sectionTable"><caption>Normalized airfoil section coordinates at cosine-clustered stations</caption></table>
         </div>
       </details>
     </section>
   </div>
 
-  <section class="panel" aria-labelledby="sectionHeading">
-    <div class="panel-head">
-      <div>
-        <h2 id="sectionHeading">Section geometry</h2>
-        <p class="panel-sub" id="sectionSub">Exact NACA 4 digit camber and thickness polynomials, rendered at cosine clustered stations.</p>
-      </div>
-      <div class="export-row">
-        <button type="button" id="csvBtn" class="btn btn-small">Download wake CSV</button>
-        <button type="button" id="forceCsvBtn" class="btn btn-small">Download force CSV</button>
-        <button type="button" id="jsonBtn" class="btn btn-small">Download snapshot JSON</button>
-      </div>
+  <section class="report-figure math-panel" aria-labelledby="mathHeading">
+    <div class="figure-head">
+      <h2 id="mathHeading">Appendix A. Governing Lattice Boltzmann &amp; Aerodynamic Formulation</h2>
     </div>
-    <div class="section-layout">
-      <div class="section-figure">
-        <svg id="sectionChart" viewBox="0 0 520 210" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="sectionChartTitle sectionChartDesc">
-          <title id="sectionChartTitle">Airfoil or obstacle section outline</title>
-          <desc id="sectionChartDesc">Upper and lower surfaces with the mean camber line. The geometry table below carries the numeric coordinates.</desc>
-        </svg>
-      </div>
-      <div class="spec-list" id="specList" aria-label="Section specification"></div>
-    </div>
-    <details class="table-details" id="sectionTableDetails">
-      <summary>Section coordinate data table</summary>
-      <div class="table-scroll">
-        <table id="sectionTable"><caption>NACA section coordinates at sampled chord stations</caption></table>
-      </div>
-    </details>
-  </section>
-
-  <section class="panel math-panel" aria-labelledby="mathHeading">
-    <h2 id="mathHeading">Method notes</h2>
     <div class="math-grid">
-      <div>
-        <h3>BGK collision</h3>
-        <p>Populations relax toward the discrete Maxwellian at rate <code>omega = 1 / tau</code>, with <code>tau = 3 nu + 1/2</code>. Pressure follows the ideal lattice gas law <code>p = rho / 3</code>.</p>
-        <p class="formula">f<sub>i</sub>(x + c<sub>i</sub>, t + 1) = f<sub>i</sub>(x, t) + &omega; (f<sub>i</sub><sup>eq</sup> &minus; f<sub>i</sub>)</p>
+      <div class="math-col">
+        <h3>A.1 Single-Relaxation BGK Collision</h3>
+        <p>Nine discrete particle populations relax toward the second-order truncated Maxwellian equilibrium at rate <code>&omega; = 1 / &tau;</code>, where kinematic viscosity is <code>&nu; = c<sub>s</sub><sup>2</sup>(&tau; &minus; 1/2)</code> and <code>c<sub>s</sub><sup>2</sup> = 1/3</code>. As <code>&tau; &rarr; 0.5</code>, dispersive pre-shock oscillations grow rapidly unless high-Mach nodes are regularized.</p>
+        <p class="formula">f<sub>i</sub>(x + c<sub>i</sub>&Delta;t, t + &Delta;t) = f<sub>i</sub>(x, t) + &omega; [f<sub>i</sub><sup>eq</sup>(&rho;, u) &minus; f<sub>i</sub>(x, t)]</p>
       </div>
-      <div>
-        <h3>Boundaries</h3>
-        <p>The west inlet uses Zou-He velocity closure, the east outlet copies outgoing populations, and halfway bounce-back reflects any population that would stream out of a solid node. The reflected momentum gives the drag and lift proxies directly.</p>
-        <p class="formula">F = &sum; 2 c<sub>i</sub> f<sub>i</sub><sup>*</sup></p>
+      <div class="math-col">
+        <h3>A.2 Zou-He Inlet &amp; Bounce-Back Links</h3>
+        <p>The west boundary reconstructs density and inward populations from prescribed inflow velocity <code>u<sub>0</sub></code>. Solid obstacle nodes reflect incoming populations halfway along each cut lattice link, enforcing no-slip walls and yielding hydrodynamic force directly by momentum exchange.</p>
+        <p class="formula">F = &sum;<sub>links</sub> 2 c<sub>i</sub> f<sub>i</sub><sup>*</sup>(x<sub>f</sub>, t), &nbsp; C<sub>p</sub> = (&rho; &minus; &rho;<sub>0</sub>) / (3 &middot; &frac12;&rho;<sub>0</sub>u<sub>0</sub><sup>2</sup>)</p>
       </div>
-      <div>
-        <h3>NACA 4 digit</h3>
-        <p>Thickness uses the closed trailing edge polynomial with the <code>-0.1036</code> coefficient. Camber is a pair of parabolas meeting at the maximum camber position, and thickness is offset along the local normal.</p>
+      <div class="math-col">
+        <h3>A.3 NACA 4-Digit Normal Offset</h3>
+        <p>Half-thickness uses the closed trailing-edge polynomial (<code>&minus;0.1036 x<sup>4</sup></code>) and is offset perpendicular to the parabolic mean camber line <code>y<sub>c</sub>(x)</code> at local angle <code>&theta; = atan(dy<sub>c</sub>/dx)</code> across cosine-clustered stations.</p>
         <p class="formula">y<sub>t</sub> = 5t (0.2969&radic;x &minus; 0.1260x &minus; 0.3516x<sup>2</sup> + 0.2843x<sup>3</sup> &minus; 0.1036x<sup>4</sup>)</p>
       </div>
     </div>
@@ -226,8 +265,8 @@
 </main>
 
 <footer class="site-footer">
-  <p>SpectralFlow v1.0.0 &middot; Zero dependencies &middot; Runs entirely offline &middot; MIT licensed</p>
-  <p>Values are dimensionless lattice units for exploration and education, not certified engineering data.</p>
+  <p>SpectralFlow v1.0.0 &middot; UMD Solver Kernel (<code>cfd.js</code>) &middot; 67/67 Node.js Verification Assertions &middot; MIT License</p>
+  <p>All calculations use dimensionless lattice units on a 220 &times; 92 cartesian grid for interactive aerodynamic analysis.</p>
 </footer>
 
 <div id="liveStatus" class="sr-only" role="status" aria-live="polite"></div>

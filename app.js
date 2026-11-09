@@ -1,6 +1,7 @@
 /*
  * SpectralFlow app.js
- * Browser controller: simulation loop, canvas field, SVG charts, tables, exports.
+ * Browser controller: D2Q9 wind tunnel loop, Schlieren & field viewport,
+ * chordwise Cp(x/c) plot, wake rake, force balance, section ordinates & polar.
  * Zero dependencies. No network requests.
  */
 (function () {
@@ -18,9 +19,9 @@
   var CHART_EVERY = 6;
   var TABLE_EVERY = 24;
   var SVG_NS = 'http://www.w3.org/2000/svg';
-  var CHART_W = 520;
+  var CHART_W = 540;
   var CHART_H = 260;
-  var PLOT = { left: 54, right: 496, top: 18, bottom: 208 };
+  var PLOT = { left: 56, right: 516, top: 18, bottom: 210 };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -34,10 +35,12 @@
     runToggle: $('runToggle'), stepBtn: $('stepBtn'), resetBtn: $('resetBtn'),
     textureToggle: $('textureToggle'),
     statRe: $('statRe'), statReNote: $('statReNote'), statCd: $('statCd'),
-    statCl: $('statCl'), statLd: $('statLd'), statTime: $('statTime'),
+    statCl: $('statCl'), statClNote: $('statClNote'), statLd: $('statLd'),
+    statTime: $('statTime'), statTau: $('statTau'), statMach: $('statMach'),
     canvas: $('flowCanvas'), fieldTooltip: $('fieldTooltip'),
     fieldDescription: $('fieldDescription'), fieldScaleLabel: $('fieldScaleLabel'),
     legendBar: $('legendBar'),
+    cpChart: $('cpChart'), cpIntegralLabel: $('cpIntegralLabel'),
     wakeChart: $('wakeChart'), wakeTooltip: $('wakeTooltip'), wakeXLabel: $('wakeXLabel'),
     wakeTable: $('wakeTable'),
     forceChart: $('forceChart'), forceTooltip: $('forceTooltip'),
@@ -55,6 +58,7 @@
     frame: 0,
     state: null,
     diag: null,
+    schlieren: new Float64Array(NX * NY),
     colors: {},
     lut: null,
     lutKey: '',
@@ -62,11 +66,9 @@
     offCtx: null,
     offData: null,
     tracers: [],
-    wakeHover: -1,
-    forceHover: -1,
     wakePoints: [],
     forcePoints: [],
-    lastCsvKey: ''
+    polarPoints: []
   };
 
   /* ---------------- Color helpers ---------------- */
@@ -116,7 +118,16 @@
     var i;
     var t;
     var rgb;
-    if (field === 'speed') {
+    if (field === 'schlieren') {
+      var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      stops = dark
+        ? [[14, 16, 19], [48, 56, 66], [128, 138, 148], [218, 220, 214], [252, 249, 240]]
+        : [[248, 245, 236], [206, 200, 186], [134, 128, 116], [62, 58, 52], [18, 17, 15]];
+      for (i = 0; i < 256; i++) {
+        rgb = sampleRamp(stops, Math.pow(i / 255, 0.72));
+        out[i * 3] = rgb[0]; out[i * 3 + 1] = rgb[1]; out[i * 3 + 2] = rgb[2];
+      }
+    } else if (field === 'speed') {
       stops = [c['--surface-1'], c['--seq-100'], c['--seq-250'], c['--seq-400'],
         c['--seq-550'], c['--seq-700']];
       for (i = 0; i < 256; i++) {
@@ -148,6 +159,30 @@
     return Math.max(floor, Math.min(p, floor * 400));
   }
 
+  function computeSchlierenField() {
+    var st = app.state;
+    var rho = st.rho;
+    var mask = st.mask;
+    var out = app.schlieren;
+    for (var j = 0; j < NY; j++) {
+      var jm = Math.max(0, j - 1);
+      var jp = Math.min(NY - 1, j + 1);
+      for (var i = 0; i < NX; i++) {
+        var cell = j * NX + i;
+        if (mask[cell] === 1) {
+          out[cell] = 0;
+          continue;
+        }
+        var im = Math.max(0, i - 1);
+        var ip = Math.min(NX - 1, i + 1);
+        var drx = (rho[j * NX + ip] - rho[j * NX + im]) * 0.5;
+        var dry = (rho[jp * NX + i] - rho[jm * NX + i]) * 0.5;
+        out[cell] = Math.sqrt(drx * drx + dry * dry);
+      }
+    }
+    return out;
+  }
+
   /* ---------------- Simulation setup ---------------- */
 
   function currentCode() {
@@ -157,7 +192,7 @@
       return /^[0-9]{4}$/.test(code) ? code : '0012';
     }
     if (kind.indexOf('naca') === 0) return kind.slice(4);
-    return '0012';
+    return '2412';
   }
 
   function currentAngle() { return Number(ui.angleRange.value); }
@@ -187,7 +222,9 @@
       SF.setObstacle(app.state, mask);
     }
     if (resetParticles !== false) seedTracers();
+    SF.stepLBM(app.state, 40);
     app.diag = SF.computeDiagnostics(app.state);
+    computeSchlierenField();
     app.frame = 0;
     updateControlLabels();
     renderSection();
@@ -196,7 +233,7 @@
   }
 
   function updateControlLabels() {
-    ui.angleValue.textContent = currentAngle() + '°';
+    ui.angleValue.textContent = currentAngle() + '\u00b0';
     ui.speedValue.textContent = currentSpeed().toFixed(3);
     ui.viscosityValue.textContent = currentViscosity().toFixed(3);
     ui.chordValue.textContent = currentChord() + ' px';
@@ -289,11 +326,21 @@
 
   function fieldDescriptions() {
     return {
-      curl: 'Screen-space vorticity d(u_y)/dx - d(u_x)/dy. Blue and red poles mark opposite rotation, with a neutral midpoint.',
-      speed: 'Velocity magnitude |u| on a single blue sequential ramp, from near-stagnant to the fastest local flow.',
-      cp: 'Pressure coefficient Cp = (rho - rho0) / (3 q). Suction and compression share one diverging scale.',
-      tracers: 'Massless streamline tracers advected by the local lattice velocity. Trails reveal separation and recirculation.'
+      curl: 'Screen-space vorticity d(u_y)/dx - d(u_x)/dy. Blue and red poles mark opposite shear rotation across the wake.',
+      schlieren: 'Numerical Schlieren knife-edge density gradient |grad rho|, highlighting shear layers, stagnation compression, and vortex cores.',
+      speed: 'Velocity magnitude |u| on a sequential scale from stagnation (0) to peak accelerated flow over the suction surface.',
+      cp: 'Pressure coefficient Cp = (rho - rho0) / (3 q). Suction (negative Cp) and stagnation compression share one diverging scale.',
+      tracers: 'Massless smoke-wire filaments advected through bilinear lattice velocities. Trails expose boundary-layer separation and wake roll-up.'
     };
+  }
+
+  function currentFieldLimit() {
+    var d = app.diag;
+    var f = app.field;
+    if (f === 'curl') return scaleLimit(d.fields.curl, app.state.mask, 0.004);
+    if (f === 'schlieren') return scaleLimit(app.schlieren, app.state.mask, 0.0015);
+    if (f === 'cp') return scaleLimit(d.fields.cp, app.state.mask, 0.06);
+    return Math.max(app.state.u0 * 1.35, d.maxSpeed);
   }
 
   function renderField() {
@@ -309,19 +356,15 @@
     var solid = app.colors['--solid-ink'];
     var bg = app.colors['--surface-1'];
     var arr;
-    var limit;
+    var limit = currentFieldLimit();
     if (f === 'curl') {
       arr = d.fields.curl;
-      limit = scaleLimit(arr, st.mask, 0.004);
-    } else if (f === 'speed') {
+    } else if (f === 'schlieren') {
+      arr = app.schlieren;
+    } else if (f === 'speed' || f === 'tracers') {
       arr = d.fields.speed;
-      limit = Math.max(st.u0 * 1.35, d.maxSpeed);
-    } else if (f === 'cp') {
-      arr = d.fields.cp;
-      limit = scaleLimit(arr, st.mask, 0.06);
     } else {
-      arr = d.fields.speed;
-      limit = Math.max(st.u0 * 1.35, d.maxSpeed);
+      arr = d.fields.cp;
     }
     var lut = app.lut;
     var cell;
@@ -335,13 +378,13 @@
       }
       var v = arr[cell];
       var t;
-      if (f === 'speed' || f === 'tracers') {
+      if (f === 'speed' || f === 'tracers' || f === 'schlieren') {
         t = Math.max(0, Math.min(1, v / limit));
       } else {
         t = 0.5 + 0.5 * Math.max(-1, Math.min(1, v / limit));
       }
       if (f === 'tracers') {
-        var bgc = lerpColor(bg, lutRgb(lut, 90), 0.28 * t);
+        var bgc = lerpColor(bg, lutRgb(lut, 90), 0.25 * t);
         data[idx] = bgc[0]; data[idx + 1] = bgc[1]; data[idx + 2] = bgc[2];
       } else {
         var b = Math.round(t * 255) * 3;
@@ -368,12 +411,12 @@
     var f = app.field;
     ctx.save();
     if (f === 'tracers') {
-      ctx.lineWidth = Math.max(1, sx * 0.85);
+      ctx.lineWidth = Math.max(1.1, sx * 0.85);
       ctx.lineCap = 'round';
       var accent = rgbToCss(app.colors['--series-1']);
       for (var k = 0; k < app.tracers.length; k++) {
         var p = app.tracers[k];
-        var alpha = 0.16 + 0.55 * (1 - p.age / p.life);
+        var alpha = 0.18 + 0.58 * (1 - p.age / p.life);
         ctx.globalAlpha = Math.max(0.08, alpha);
         ctx.strokeStyle = accent;
         ctx.beginPath();
@@ -384,16 +427,15 @@
       ctx.globalAlpha = 1;
     }
     if (app.texture && f !== 'tracers') {
-      /* Secondary encoding: 45 degree hatching on positive poles, 135 on negative. */
       ctx.strokeStyle = rgbToCss(app.colors['--text-primary']);
       ctx.globalAlpha = 0.24;
       ctx.lineWidth = 1;
       var step = Math.max(5, Math.round(sx * 3));
-      var pole = f === 'speed' ? 1 : 0.5;
+      var pole = (f === 'speed' || f === 'schlieren') ? 1 : 0.5;
       for (var j = 2; j < NY - 2; j += 2) {
         for (var i = 2; i < NX - 2; i += 2) {
           var v = arr[j * NX + i];
-          var norm = (f === 'speed' || f === 'tracers') ? v / limit : 0.5 + 0.5 * v / limit;
+          var norm = (f === 'speed' || f === 'tracers' || f === 'schlieren') ? v / limit : 0.5 + 0.5 * v / limit;
           if (st.mask[j * NX + i] === 1) continue;
           if (Math.abs(norm - pole) < 0.22) continue;
           var positive = norm > pole;
@@ -407,14 +449,17 @@
       }
       ctx.globalAlpha = 1;
     }
-    /* Inlet and outlet hairlines frame the flow direction. */
+    /* Draw wake rake traverse station line at x = 0.75 NX */
+    var wakeX = Math.round(NX * 0.75) * sx;
     ctx.strokeStyle = rgbToCss(app.colors['--axis']);
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.55;
     ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(sx, 0); ctx.lineTo(sx, size[1]);
-    ctx.moveTo(size[0] - sx, 0); ctx.lineTo(size[0] - sx, size[1]);
+    ctx.moveTo(wakeX, 0);
+    ctx.lineTo(wakeX, size[1]);
     ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
@@ -423,22 +468,25 @@
     ui.legendBar.textContent = '';
     if (f === 'tracers') {
       var note = document.createElement('span');
-      note.textContent = 'Tracer trails follow local velocity. Solid cells are drawn in neutral ink.';
+      note.textContent = 'Smoke-wire tracer filaments advected by bilinear velocity; dashed vertical line marks wake rake at x = 0.75 Lx.';
       ui.legendBar.appendChild(note);
+      ui.fieldScaleLabel.textContent = 'tracer advection';
       return;
     }
     var stops;
-    if (f === 'speed') {
-      stops = ['--surface-1', '--seq-100', '--seq-250', '--seq-400', '--seq-550', '--seq-700'];
+    if (f === 'schlieren') {
+      stops = [cssVar('--surface-1'), cssVar('--text-muted'), cssVar('--text-primary')];
+    } else if (f === 'speed') {
+      stops = [cssVar('--surface-1'), cssVar('--seq-100'), cssVar('--seq-250'), cssVar('--seq-400'), cssVar('--seq-550'), cssVar('--seq-700')];
     } else if (f === 'curl') {
-      stops = ['--div-neg', '--div-mid', '--div-pos'];
+      stops = [cssVar('--div-neg'), cssVar('--div-mid'), cssVar('--div-pos')];
     } else {
-      stops = ['--div-pos', '--div-mid', '--div-neg'];
+      stops = [cssVar('--div-pos'), cssVar('--div-mid'), cssVar('--div-neg')];
     }
     var gradient = document.createElement('span');
     gradient.className = 'legend-gradient';
     var cssStops = stops.map(function (s, k) {
-      return cssVar(s) + ' ' + Math.round(k / (stops.length - 1) * 100) + '%';
+      return s + ' ' + Math.round(k / (stops.length - 1) * 100) + '%';
     });
     gradient.style.background = 'linear-gradient(90deg, ' + cssStops.join(', ') + ')';
     ui.legendBar.appendChild(gradient);
@@ -447,19 +495,18 @@
     var lo = document.createElement('span');
     var mid = document.createElement('span');
     var hi = document.createElement('span');
-    if (f === 'speed') {
+    if (f === 'speed' || f === 'schlieren') {
       lo.textContent = '0';
-      mid.textContent = (limit / 2).toFixed(3);
-      hi.textContent = limit.toFixed(3) + ' |u|';
+      mid.textContent = (limit / 2).toFixed(4);
+      hi.textContent = limit.toFixed(4) + (f === 'speed' ? ' |u|' : ' |grad rho|');
     } else {
       lo.textContent = '-' + limit.toFixed(3);
       mid.textContent = '0';
       hi.textContent = '+' + limit.toFixed(3);
     }
     ticks.appendChild(lo); ticks.appendChild(mid); ticks.appendChild(hi);
-    ticks.style.gap = '24px';
     ui.legendBar.appendChild(ticks);
-    ui.fieldScaleLabel.textContent = f === 'speed' ? 'velocity scale' : (f === 'curl' ? 'curl range' : 'Cp range');
+    ui.fieldScaleLabel.textContent = f === 'speed' ? 'velocity scale' : (f === 'curl' ? 'vorticity range' : (f === 'schlieren' ? 'Schlieren knife-edge' : 'Cp range'));
   }
 
   /* ---------------- SVG chart primitives ---------------- */
@@ -502,7 +549,7 @@
       }, xt.label));
     }
     g.appendChild(svgEl('text', {
-      x: (PLOT.left + PLOT.right) / 2, y: CHART_H - 16,
+      x: (PLOT.left + PLOT.right) / 2, y: CHART_H - 14,
       'text-anchor': 'middle', class: 'axis-title'
     }, xTitle));
     g.appendChild(svgEl('text', {
@@ -550,6 +597,88 @@
     return svg.querySelector('.crosshair');
   }
 
+  /* ---------------- Chordwise Surface Cp(x/c) Chart ---------------- */
+
+  function computeSurfaceCp() {
+    var st = app.state;
+    var mask = st.mask;
+    var cp = app.diag.fields.cp;
+    var b = mask.bounds || SF.maskBounds(mask, NX, NY);
+    var span = Math.max(1, b.xMax - b.xMin);
+    var rows = [];
+    for (var i = b.xMin; i <= b.xMax; i++) {
+      var topJ = -1;
+      var botJ = -1;
+      for (var j = 0; j < NY; j++) {
+        if (mask[j * NX + i] === 1) {
+          if (topJ < 0) topJ = j;
+          botJ = j;
+        }
+      }
+      if (topJ < 0) continue;
+      var ju = Math.max(1, topJ - 1);
+      var jl = Math.min(NY - 2, botJ + 1);
+      var cpu = cp[ju * NX + i];
+      var cpl = cp[jl * NX + i];
+      rows.push({
+        xc: (i - b.xMin) / span,
+        cpUpper: cpu,
+        cpLower: cpl
+      });
+    }
+    var clp = 0;
+    for (var k = 1; k < rows.length; k++) {
+      var dx = rows[k].xc - rows[k - 1].xc;
+      var jump0 = rows[k - 1].cpLower - rows[k - 1].cpUpper;
+      var jump1 = rows[k].cpLower - rows[k].cpUpper;
+      clp += 0.5 * (jump0 + jump1) * dx;
+    }
+    return { rows: rows, clPressure: clp };
+  }
+
+  function renderCpChart() {
+    var svg = ui.cpChart;
+    var surf = computeSurfaceCp();
+    var rows = surf.rows;
+    clearSvg(svg);
+    if (rows.length < 2) {
+      chartFrame(svg, [{ x: PLOT.left, label: '0.0' }, { x: PLOT.right, label: '1.0' }],
+        [{ y: PLOT.bottom, label: '+1.0' }, { y: PLOT.top, label: '-1.0' }],
+        'Normalized chord station x / c', 'Surface pressure -Cp');
+      ui.cpIntegralLabel.textContent = 'Cl,p = n/a';
+      return;
+    }
+    var vals = [];
+    rows.forEach(function (r) { vals.push(-r.cpUpper, -r.cpLower); });
+    var minV = Math.min.apply(null, vals.concat([-0.6]));
+    var maxV = Math.max.apply(null, vals.concat([0.8]));
+    var scale = niceTicks(minV - 0.15, maxV + 0.15, 5);
+    var stepY = scale.ticks.length > 1 ? scale.ticks[1] - scale.ticks[0] : 0.5;
+    var xOf = function (xc) { return PLOT.left + xc * (PLOT.right - PLOT.left); };
+    var yOf = function (negCp) {
+      return PLOT.bottom - (negCp - scale.lo) / (scale.hi - scale.lo) * (PLOT.bottom - PLOT.top);
+    };
+    var xTicks = [0, 0.2, 0.4, 0.6, 0.8, 1.0].map(function (xc) {
+      return { x: xOf(xc), label: xc.toFixed(1) };
+    });
+    chartFrame(svg, xTicks,
+      scale.ticks.map(function (v) { return { y: yOf(v), label: fmtTick(v, stepY) }; }),
+      'Normalized chord station x / c', 'Suction -Cp (upward)');
+
+    if (scale.lo < 0 && scale.hi > 0) {
+      svg.appendChild(svgEl('line', {
+        x1: PLOT.left, x2: PLOT.right, y1: yOf(0), y2: yOf(0), class: 'ref-line'
+      }));
+    }
+    var upPts = rows.map(function (r) { return [xOf(r.xc), yOf(-r.cpUpper)]; });
+    var loPts = rows.map(function (r) { return [xOf(r.xc), yOf(-r.cpLower)]; });
+    var loopArea = pathFrom(upPts) + ' ' + pathFrom(loPts.slice().reverse()).replace(/^M/, 'L') + ' Z';
+    svg.appendChild(svgEl('path', { d: loopArea, fill: cssVar('--series-1'), opacity: '0.10' }));
+    svg.appendChild(svgEl('path', { d: pathFrom(upPts), class: 'series-line', stroke: cssVar('--series-1') }));
+    svg.appendChild(svgEl('path', { d: pathFrom(loPts), class: 'series-line', stroke: cssVar('--series-2') }));
+    ui.cpIntegralLabel.textContent = 'Cl,p = ' + surf.clPressure.toFixed(3);
+  }
+
   /* ---------------- Wake chart ---------------- */
 
   function renderWakeChart() {
@@ -570,7 +699,7 @@
       scale.ticks.map(function (v) { return { x: xOf(v), label: fmtTick(v, stepY) }; }),
       [{ y: yOf(0), label: '0' }, { y: yOf((samples.length - 1) / 2), label: String(Math.floor(NY / 2)) },
         { y: yOf(samples.length - 1), label: String(NY - 1) }],
-      'Streamwise velocity u_x (lattice units)', 'Transverse grid row j');
+      'Streamwise velocity u_x (lattice units)', 'Tunnel row j');
 
     var refX = xOf(u0);
     if (refX >= PLOT.left && refX <= PLOT.right) {
@@ -580,7 +709,7 @@
       svg.appendChild(svgEl('text', {
         x: Math.min(PLOT.right - 4, refX + 5), y: PLOT.top + 11, class: 'tick-text',
         'text-anchor': refX > PLOT.right - 70 ? 'end' : 'start'
-      }, 'free stream ' + u0.toFixed(3)));
+      }, 'u0 = ' + u0.toFixed(3)));
     }
     var pts = [];
     for (var i = 0; i < samples.length; i++) pts.push([xOf(Math.max(scale.lo, Math.min(scale.hi, vals[i]))), yOf(i)]);
@@ -593,16 +722,16 @@
     for (var m = 1; m < vals.length; m++) if (vals[m] < vals[deficitIndex]) deficitIndex = m;
     var ep = pts[deficitIndex];
     svg.appendChild(svgEl('circle', {
-      cx: ep[0], cy: ep[1], r: 4.5,
+      cx: ep[0], cy: ep[1], r: 4,
       fill: cssVar('--series-1'), class: 'end-dot'
     }));
     svg.appendChild(svgEl('text', {
-      x: Math.min(PLOT.right - 2, ep[0] + 9), y: ep[1] + 4, class: 'end-label'
+      x: Math.min(PLOT.right - 2, ep[0] + 8), y: ep[1] + 4, class: 'end-label'
     }, 'min ' + vals[deficitIndex].toFixed(3)));
     svg.appendChild(svgEl('line', {
       x1: 0, x2: 0, y1: PLOT.top, y2: PLOT.bottom, class: 'crosshair', visibility: 'hidden'
     }));
-    ui.wakeXLabel.textContent = app.diag.wake.x + ' of ' + NX;
+    ui.wakeXLabel.textContent = app.diag.wake.x + ' / ' + NX;
   }
 
   function showWakeTooltip(clientX, clientY) {
@@ -676,11 +805,11 @@
     if (hist.length === 0) {
       chartFrame(svg, [{ x: PLOT.left, label: '0' }, { x: PLOT.right, label: '1' }],
         [{ y: PLOT.bottom, label: '0' }, { y: PLOT.top, label: '1' }],
-        'Simulation step', 'Force coefficient');
+        'Lattice step', 'Force coefficient');
       svg.appendChild(svgEl('text', {
         x: (PLOT.left + PLOT.right) / 2, y: (PLOT.top + PLOT.bottom) / 2,
         'text-anchor': 'middle', class: 'axis-title'
-      }, 'Collecting force samples'));
+      }, 'Collecting aerodynamic balance samples'));
       app.forcePoints = [];
       ui.forceSamplesLabel.textContent = '0 samples';
       return;
@@ -705,7 +834,7 @@
     });
     chartFrame(svg, xTicks,
       scale.ticks.map(function (v) { return { y: yOf(v), label: fmtTick(v, stepY) }; }),
-      'Simulation step', 'Force coefficient');
+      'Lattice step', 'Coefficient (Cd, Cl)');
     if (scale.lo < 0 && scale.hi > 0) {
       svg.appendChild(svgEl('line', {
         x1: PLOT.left, x2: PLOT.right, y1: yOf(0), y2: yOf(0), class: 'ref-line'
@@ -721,10 +850,10 @@
       svg.appendChild(svgEl('path', { d: pathFrom(pts), class: 'series-line', stroke: s.color }));
       var last = pts[pts.length - 1];
       svg.appendChild(svgEl('circle', {
-        cx: last[0], cy: last[1], r: 4.5, fill: s.color, class: 'end-dot'
+        cx: last[0], cy: last[1], r: 4, fill: s.color, class: 'end-dot'
       }));
       var value = hist[n - 1][s.key];
-      var labelY = Math.max(PLOT.top + 10, Math.min(PLOT.bottom - 3, last[1] - 9));
+      var labelY = Math.max(PLOT.top + 10, Math.min(PLOT.bottom - 3, last[1] - 8));
       var anchor = 'end';
       var lx = last[0] - 7;
       if (last[0] < PLOT.left + 50) { anchor = 'start'; lx = last[0] + 7; }
@@ -801,30 +930,44 @@
     var svg = ui.sectionChart;
     var mask = app.state.mask;
     clearSvg(svg);
-    var W = 520;
-    var H = 210;
+    var W = 540;
+    var H = 220;
     var left = 36;
-    var right = 504;
-    var top = 16;
-    var bottom = 182;
+    var midR = 302;
+    var polL = 354;
+    var right = 524;
+    var top = 18;
+    var bottom = 186;
     var g = svgEl('g');
-    g.appendChild(svgEl('line', { x1: left, x2: right, y1: bottom, y2: bottom, class: 'axis-line' }));
+    g.appendChild(svgEl('line', { x1: left, x2: midR, y1: bottom, y2: bottom, class: 'axis-line' }));
     g.appendChild(svgEl('line', { x1: left, x2: left, y1: top, y2: bottom, class: 'axis-line' }));
     for (var t = 0; t <= 5; t++) {
-      var x = left + (right - left) * t / 5;
+      var x = left + (midR - left) * t / 5;
       g.appendChild(svgEl('line', { x1: x, x2: x, y1: top, y2: bottom, class: 'gridline' }));
-      g.appendChild(svgEl('text', { x: x, y: bottom + 15, 'text-anchor': 'middle', class: 'tick-text' }, (t / 5).toFixed(1)));
+      g.appendChild(svgEl('text', { x: x, y: bottom + 14, 'text-anchor': 'middle', class: 'tick-text' }, (t / 5).toFixed(1)));
     }
     g.appendChild(svgEl('text', {
-      x: (left + right) / 2, y: H - 6, 'text-anchor': 'middle', class: 'axis-title'
-    }, 'Chord fraction x / c'));
+      x: (left + midR) / 2, y: H - 5, 'text-anchor': 'middle', class: 'axis-title'
+    }, 'Section ordinate x / c'));
+
+    /* Right sub-panel: Cl vs Cd polar locus */
+    g.appendChild(svgEl('line', { x1: polL, x2: right, y1: bottom, y2: bottom, class: 'axis-line' }));
+    g.appendChild(svgEl('line', { x1: polL, x2: polL, y1: top, y2: bottom, class: 'axis-line' }));
+    var polZeroY = (top + bottom) / 2;
+    g.appendChild(svgEl('line', { x1: polL, x2: right, y1: polZeroY, y2: polZeroY, class: 'ref-line' }));
+    g.appendChild(svgEl('text', { x: polL - 5, y: top + 6, 'text-anchor': 'end', class: 'tick-text' }, '+1.5'));
+    g.appendChild(svgEl('text', { x: polL - 5, y: polZeroY + 3, 'text-anchor': 'end', class: 'tick-text' }, '0'));
+    g.appendChild(svgEl('text', { x: polL - 5, y: bottom, 'text-anchor': 'end', class: 'tick-text' }, '-1.5'));
+    g.appendChild(svgEl('text', {
+      x: (polL + right) / 2, y: H - 5, 'text-anchor': 'middle', class: 'axis-title'
+    }, 'Polar C_l vs C_d'));
     svg.appendChild(g);
 
     var isAirfoil = mask.kind === 'naca4';
     if (isAirfoil) {
       var c = mask.coordinates;
       var yMax = Math.max(0.32, c.maxThickness * 2.2, c.maxCamber * 2.4);
-      var xOf = function (x) { return left + x * (right - left); };
+      var xOf = function (x) { return left + x * (midR - left); };
       var yOf = function (y) { return (top + bottom) / 2 - y / yMax * (bottom - top) * 0.46; };
       var upper = c.upper.map(function (p) { return [xOf(p.x), yOf(p.y)]; });
       var lower = c.lower.map(function (p) { return [xOf(p.x), yOf(p.y)]; });
@@ -835,16 +978,20 @@
       }));
       svg.appendChild(svgEl('path', {
         d: pathFrom(c.camberLine.map(function (p) { return [xOf(p.x), yOf(p.y)]; })),
-        fill: 'none', stroke: cssVar('--series-2'), 'stroke-width': 2, 'stroke-dasharray': '5 4'
+        fill: 'none', stroke: cssVar('--series-2'), 'stroke-width': 1.8, 'stroke-dasharray': '5 4'
       }));
       var chord = svgEl('path', { d: pathFrom([[xOf(0), yOf(0)], [xOf(1), yOf(0)]]), fill: 'none', stroke: cssVar('--axis'), 'stroke-width': 1 });
       svg.appendChild(chord);
-      svg.appendChild(svgEl('text', { x: right - 4, y: yOf(0) - 7, 'text-anchor': 'end', class: 'tick-text' }, 'chord line'));
-      ui.sectionSub.textContent = 'Exact NACA ' + c.code + ' camber and thickness polynomials with perpendicular offset, cosine clustered at ' + c.samples + ' stations.';
+      svg.appendChild(svgEl('circle', {
+        cx: xOf(0.25), cy: yOf(SF.naca4Camber(0.25, c.maxCamber, c.camberPosition)),
+        r: 3.2, fill: cssVar('--series-2')
+      }));
+      svg.appendChild(svgEl('text', { x: xOf(0.25) + 5, y: yOf(0) + 13, class: 'tick-text' }, '0.25c'));
+      ui.sectionSub.textContent = 'Exact NACA ' + c.code + ' thickness and camber polynomials offset along the local normal across ' + c.samples + ' cosine-clustered stations.';
       renderSectionTable(c);
     } else {
-      var scale = Math.min((right - left) / NX, (bottom - top) / NY) * 0.92;
-      var ox = left + ((right - left) - NX * scale) / 2;
+      var scale = Math.min((midR - left) / NX, (bottom - top) / NY) * 0.92;
+      var ox = left + ((midR - left) - NX * scale) / 2;
       var oy = top + ((bottom - top) - NY * scale) / 2;
       var path = [];
       var i;
@@ -867,11 +1014,42 @@
         }));
       }
       svg.appendChild(svgEl('text', {
-        x: (left + right) / 2, y: (top + bottom) / 2,
+        x: (left + midR) / 2, y: (top + bottom) / 2,
         'text-anchor': 'middle', class: 'axis-title'
-      }, mask.shape + ' raster, ' + mask.solidCount + ' solid cells'));
-      ui.sectionSub.textContent = 'Solid cell raster for ' + mask.shape + '. NACA coordinates are available when an airfoil is selected.';
+      }, mask.shape + ' (' + mask.solidCount + ' nodes)'));
+      ui.sectionSub.textContent = 'Solid cell raster for ' + mask.shape + '. Select a NACA airfoil to inspect continuous section ordinates.';
       renderSectionTable(null);
+    }
+
+    /* Plot polar parabola + current live (Cd, Cl) operating point */
+    var pxPol = function (cd) {
+      var cClamped = Math.max(0, Math.min(2.5, cd));
+      return polL + (cClamped / 2.5) * (right - polL);
+    };
+    var pyPol = function (cl) {
+      var lClamped = Math.max(-1.6, Math.min(1.6, cl));
+      return polZeroY - (lClamped / 1.6) * ((bottom - top) / 2);
+    };
+    var camBias = isAirfoil ? (mask.maxCamber || 0) * 8.5 : 0;
+    var locus = [];
+    for (var a = -14; a <= 14; a += 2) {
+      var clEst = camBias + a * 0.088;
+      var cdEst = 0.42 + 0.0042 * a * a + Math.abs(camBias) * 0.12;
+      locus.push([pxPol(cdEst), pyPol(clEst)]);
+    }
+    svg.appendChild(svgEl('path', {
+      d: pathFrom(locus), fill: 'none', stroke: cssVar('--series-3'), 'stroke-width': 1.6, 'stroke-dasharray': '3 2'
+    }));
+    if (app.diag && Number.isFinite(app.diag.meanCd) && Number.isFinite(app.diag.meanCl)) {
+      var opX = pxPol(Math.abs(app.diag.meanCd));
+      var opY = pyPol(app.diag.meanCl);
+      svg.appendChild(svgEl('circle', {
+        cx: opX, cy: opY, r: 4.5, fill: cssVar('--series-2'), class: 'end-dot'
+      }));
+      svg.appendChild(svgEl('text', {
+        x: Math.min(right - 4, opX + 7), y: Math.max(top + 10, opY - 5),
+        class: 'end-label'
+      }, 'Cl=' + app.diag.meanCl.toFixed(2)));
     }
     renderSpecs(mask);
   }
@@ -879,22 +1057,21 @@
   function renderSpecs(mask) {
     var d = app.diag;
     var rows = [
-      ['Obstacle', mask.shape],
-      ['Code', mask.code || 'n/a'],
-      ['Angle of attack', (mask.angleDeg || 0).toFixed(1) + ' deg'],
-      ['Solid cells', String(mask.solidCount)],
-      ['Reference height', mask.projectedHeight.toFixed(2) + ' px'],
-      ['Reynolds number', d.reynolds.toFixed(1)],
-      ['Tau', app.state.tau.toFixed(4)],
-      ['Omega', app.state.omega.toFixed(4)],
-      ['Max |u|', d.maxSpeed.toFixed(4)],
-      ['Cp range', d.minCp.toFixed(2) + ' to ' + d.maxCp.toFixed(2)]
+      ['Model geometry', mask.shape],
+      ['NACA designation', mask.code || 'non-airfoil'],
+      ['Incidence alpha', (mask.angleDeg || 0).toFixed(1) + ' deg'],
+      ['Solid lattice nodes', String(mask.solidCount)],
+      ['Projected frontal L_ref', mask.projectedHeight.toFixed(2) + ' px'],
+      ['Reynolds number Re', d.reynolds.toFixed(1)],
+      ['BGK tau / omega', app.state.tau.toFixed(4) + ' / ' + app.state.omega.toFixed(3)],
+      ['Peak speed |u|_max', d.maxSpeed.toFixed(4)],
+      ['Pressure Cp span', d.minCp.toFixed(2) + ' to ' + d.maxCp.toFixed(2)]
     ];
     if (mask.kind === 'naca4') {
       rows.splice(3, 0,
-        ['Max camber', mask.maxCamber.toFixed(3)],
-        ['Camber position', mask.camberPosition.toFixed(2)],
-        ['Thickness ratio', mask.thickness.toFixed(3)]);
+        ['Max camber m/c', mask.maxCamber.toFixed(3)],
+        ['Camber station p/c', mask.camberPosition.toFixed(2)],
+        ['Thickness ratio t/c', mask.thickness.toFixed(3)]);
     }
     ui.specList.textContent = '';
     var dl = document.createElement('dl');
@@ -998,24 +1175,25 @@
     ui.statCl.textContent = fmtSigned(d.meanCl);
     ui.statLd.textContent = fmtSigned(d.meanLd);
     ui.statTime.textContent = 'step ' + app.state.time;
+    if (ui.statTau) {
+      ui.statTau.textContent = app.state.tau.toFixed(3) + ' / ' + app.state.omega.toFixed(2);
+    }
+    if (ui.statMach) {
+      var ma = app.state.u0 * Math.sqrt(3);
+      ui.statMach.textContent = 'Ma = ' + ma.toFixed(3) + ' (cs = 0.577)';
+    }
   }
 
   function renderAll(withTables) {
+    computeSchlierenField();
     renderField();
     renderLegend(currentFieldLimit());
+    renderCpChart();
     renderWakeChart();
     renderForceChart();
     renderStats();
     ui.fieldDescription.textContent = fieldDescriptions()[app.field];
     if (withTables) renderTables();
-  }
-
-  function currentFieldLimit() {
-    var d = app.diag;
-    var f = app.field;
-    if (f === 'curl') return scaleLimit(d.fields.curl, app.state.mask, 0.004);
-    if (f === 'cp') return scaleLimit(d.fields.cp, app.state.mask, 0.06);
-    return Math.max(app.state.u0 * 1.35, d.maxSpeed);
   }
 
   function frame() {
@@ -1034,7 +1212,7 @@
       }
     } catch (err) {
       app.running = false;
-      ui.runToggle.textContent = 'Resume simulation';
+      ui.runToggle.textContent = 'Resume tunnel';
       ui.runToggle.setAttribute('aria-pressed', 'false');
       announce('Simulation stopped: ' + (err && err.message ? err.message : 'solver error'));
     }
@@ -1044,7 +1222,7 @@
 
   function setRunning(on) {
     app.running = on;
-    ui.runToggle.textContent = on ? 'Pause simulation' : 'Resume simulation';
+    ui.runToggle.textContent = on ? 'Pause tunnel' : 'Resume tunnel';
     ui.runToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
     announce(on ? 'Simulation running.' : 'Simulation paused.');
     if (on) requestAnimationFrame(frame);
@@ -1084,13 +1262,13 @@
     var tip = ui.fieldTooltip;
     tip.textContent = '';
     var head = document.createElement('div');
-    head.style.fontWeight = '650';
+    head.style.fontWeight = '700';
     head.textContent = st.mask[cell] === 1
-      ? 'Solid cell (i ' + i + ', j ' + j + ')'
-      : 'Cell (i ' + i + ', j ' + j + ')';
+      ? 'Solid node (i=' + i + ', j=' + j + ')'
+      : 'Fluid node (i=' + i + ', j=' + j + ')';
     tip.appendChild(head);
     var rows = st.mask[cell] === 1
-      ? [['no-slip wall', 'u = 0']]
+      ? [['boundary', 'halfway bounce-back, u = 0']]
       : [
           ['u_x', st.ux[cell].toFixed(4)], ['u_y', st.uy[cell].toFixed(4)],
           ['|u|', f.speed[cell].toFixed(4)], ['rho', st.rho[cell].toFixed(4)],
@@ -1114,7 +1292,7 @@
   function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     var dark = theme === 'dark';
-    ui.themeLabel.textContent = dark ? 'Light theme' : 'Dark theme';
+    ui.themeLabel.textContent = dark ? 'NACA paper report' : 'Schlieren darkroom';
     ui.themeToggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
     try { localStorage.setItem('spectralflow-theme', theme); } catch (e) { /* storage optional */ }
   }
@@ -1123,7 +1301,7 @@
     var saved = null;
     try { saved = localStorage.getItem('spectralflow-theme'); } catch (e) { /* storage optional */ }
     if (saved === 'light' || saved === 'dark') { applyTheme(saved); return; }
-    applyTheme(globalThis.matchMedia && globalThis.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    applyTheme('light');
   }
 
   /* ---------------- Event wiring ---------------- */
@@ -1209,10 +1387,10 @@
       app.texture = !app.texture;
       document.documentElement.setAttribute('data-texture', app.texture ? 'on' : 'off');
       ui.textureToggle.setAttribute('aria-pressed', app.texture ? 'true' : 'false');
-      ui.textureToggle.textContent = app.texture ? 'Texture mode on' : 'Texture mode';
+      ui.textureToggle.textContent = app.texture ? 'Hatching on' : 'Hatching';
       app.lutKey = '';
       renderField();
-      announce('Texture mode ' + (app.texture ? 'enabled' : 'disabled') + '.');
+      announce('Hatching ' + (app.texture ? 'enabled' : 'disabled') + '.');
     });
 
     ui.canvas.addEventListener('pointermove', showFieldTooltip);
