@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "SpectralFlow"
+abstract: >-
+  A 2D lattice Boltzmann wind tunnel and wing contour test bench with
+  vorticity, Schlieren, pressure coefficient, live streamline seeding,
+  thickness, and speed fields, and chordwise surface pressure traces.
+type: software
+license: MIT
+repository-code: "https://github.com/draarivpatel-ui/spectralflow"
+url: "https://draarivpatel-ui.github.io/spectralflow/"
+keywords:
+  - lattice-boltzmann
+  - cfd
+  - fluid-dynamics
+  - wind-tunnel
+  - schlieren
+  - airfoil
+  - javascript
+  - zero-dependency
+authors:
+  - family-names: "Patel"
+    given-names: "Aariv"
+    alias: "draarivpatel-ui"
+preferred-citation:
+  type: software
+  title: "SpectralFlow"
+  version: "1.0.0"
+  date-released: "2026-11-08"
+  license: MIT
+  url: "https://draarivpatel-ui.github.io/spectralflow/"
+  authors:
+    - family-names: "Patel"
+      given-names: "Aariv"
+      alias: "draarivpatel-ui"
