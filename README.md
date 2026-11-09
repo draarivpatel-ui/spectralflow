@@ -4,8 +4,6 @@ A 2D lattice Boltzmann wind tunnel and NACA 4 digit airfoil analyzer that runs e
 
 **Live demo:** https://draarivpatel-ui.github.io/spectralflow/
 
-![Field views: vorticity, velocity magnitude, pressure coefficient, and streamline tracers](https://raw.githubusercontent.com/draarivpatel-ui/spectralflow/main/docs/field-views.svg)
-
 The workbench renders a 220 by 92 lattice in real time. Switch between vorticity, speed, pressure, and tracer streamlines; change the section, angle of attack, inflow speed, viscosity, and chord; then read the wake deficit, Reynolds number, and drag and lift coefficients from the charts. Every chart has an accompanying data table, and telemetry exports to CSV or JSON.
 
 ---
