@@ -15,7 +15,9 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '2.0.0';
+  var isFiniteNumber = Number.isFinite;
+  var vectorLength = Math.hypot;
 
   /* Screen grid: i grows right, j grows down. Direction 2 is north (j - 1). */
   var CX = [0, 1, 0, -1, 0, 1, -1, -1, 1];
@@ -26,6 +28,7 @@
   var CS2 = 1 / 3;
   var Q9 = 9;
   var HISTORY_LIMIT = 720;
+  var MAX_CELLS = 262144;
 
   var MIN_VISCOSITY = 0.004;
   var MAX_VISCOSITY = 0.18;
@@ -38,7 +41,7 @@
   var MAX_POPULATION = 8.0;
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
-  function finite(v, fallback) { return Number.isFinite(v) ? v : fallback; }
+  function finite(v, fallback) { return isFiniteNumber(v) ? v : fallback; }
   function round(v, places) {
     var p = Math.pow(10, places);
     return Math.round(v * p) / p;
@@ -74,6 +77,8 @@
     var d1 = Number(s.charAt(1));
     var d2 = Number(s.charAt(2));
     var d3 = Number(s.charAt(3));
+    if ((d2 * 10 + d3) === 0) throw new RangeError('NACA thickness must be greater than zero');
+    if (d0 > 0 && d1 === 0) throw new RangeError('A cambered NACA section needs a nonzero camber position');
     return {
       code: s,
       maxCamber: d0 / 100,
@@ -121,7 +126,7 @@
    */
   function naca4Coordinates(code, samples) {
     var spec = parseNaca4(code);
-    var n = Number.isFinite(samples) ? Math.max(8, Math.floor(samples)) : 120;
+    var n = isFiniteNumber(samples) ? clamp(Math.floor(samples), 8, 4096) : 120;
     var m = spec.maxCamber;
     var p = spec.camberPosition;
     var t = spec.thickness;
@@ -210,7 +215,25 @@
     if (nx < 8 || ny < 8 || nx > 4096 || ny > 4096) {
       throw new RangeError('nx and ny must lie between 8 and 4096');
     }
+    if (nx * ny > MAX_CELLS) throw new RangeError('Grid exceeds the ' + MAX_CELLS + ' cell memory budget');
   }
+
+  function validateMask(mask, nx, ny) {
+    if (!mask || typeof mask.length !== 'number' || mask.length !== nx * ny) throw new RangeError('Obstacle mask length must equal nx * ny');
+    var fluid = 0;
+    for (var cell = 0; cell < mask.length; cell++) {
+      if (mask[cell] !== 0 && mask[cell] !== 1) throw new RangeError('Obstacle mask must contain only 0 and 1');
+      if (mask[cell] === 0) fluid++;
+    }
+    if (!fluid) throw new RangeError('Obstacle mask must leave fluid cells in the tunnel');
+    var copy = new Uint8Array(mask);
+    ['kind', 'code', 'shape', 'nx', 'ny', 'chordPx', 'angleDeg', 'radiusPx', 'centerX', 'centerY', 'widthPx', 'heightPx', 'projectedHeight', 'referenceLength', 'forceReferenceLength', 'coefficientConvention', 'clipped', 'polygon', 'coordinates', 'maxCamber', 'camberPosition', 'thickness', 'throatRatio', 'lipFraction', 'throatHeight', 'clearance'].forEach(function (key) { if (mask[key] != null) copy[key] = mask[key]; });
+    copy.bounds = maskBounds(copy, nx, ny);
+    copy.solidCount = copy.bounds.count;
+    return copy;
+  }
+
+  function positiveReference(value, fallback) { return isFiniteNumber(value) && value > 0 ? value : fallback; }
 
   /* ---------------- Obstacle generators ---------------- */
 
@@ -223,8 +246,8 @@
   function generateNaca4Mask(code, chordPx, angleDeg, nx, ny) {
     validateGrid(nx, ny);
     var spec = parseNaca4(code);
-    var chord = Number.isFinite(chordPx) ? clamp(chordPx, 4, Math.min(nx, ny) * 4) : nx * 0.32;
-    var angle = Number.isFinite(angleDeg) ? clamp(angleDeg, -45, 45) * Math.PI / 180 : 0;
+    var chord = isFiniteNumber(chordPx) ? clamp(chordPx, 4, Math.min(nx, ny) * 4) : nx * 0.32;
+    var angle = isFiniteNumber(angleDeg) ? clamp(angleDeg, -45, 45) * Math.PI / 180 : 0;
     var coords = naca4Coordinates(code, Math.max(160, Math.round(chord * 3)));
     var poly = polygonFromCoordinates(coords);
     var qx = 0.32 * nx;
@@ -249,14 +272,16 @@
       }
     }
     var b = maskBounds(mask, nx, ny);
+    if (!b.count) throw new RangeError('Airfoil resolves no solid cells. Increase chord or section thickness.');
     /* Analytical projected frontal height is used as the reference area. */
-    var ae = Math.atan(naca4CamberSlope(0, spec.maxCamber, spec.camberPosition));
-    var projected = Math.abs(Math.sin(angle + ae)) * chord +
-      coords.maxThickness * 2 * chord * Math.abs(Math.cos(angle + ae));
+    var projected = Math.max.apply(null, physical.map(function (point) { return point.y; })) - Math.min.apply(null, physical.map(function (point) { return point.y; }));
     return attachMaskMetadata(mask, {
       kind: 'naca4', code: spec.code, chordPx: chord, angleDeg: angle * 180 / Math.PI,
       nx: nx, ny: ny, solidCount: b.count, bounds: b,
       projectedHeight: Math.max(1, projected),
+      forceReferenceLength: chord,
+      coefficientConvention: 'chord times unit span',
+      clipped: physical.some(function (point) { return point.x < 1 || point.x > nx - 1 || point.y < 1 || point.y > ny - 1; }),
       referenceLength: chord,
       polygon: physical, coordinates: coords,
       maxCamber: spec.maxCamber, camberPosition: spec.camberPosition,
@@ -266,9 +291,9 @@
 
   function generateCylinderMask(radiusPx, nx, ny, centerX, centerY) {
     validateGrid(nx, ny);
-    var r = Number.isFinite(radiusPx) ? clamp(radiusPx, 2, Math.min(nx, ny) / 3) : Math.max(3, ny * 0.055);
-    var cx = Number.isFinite(centerX) ? centerX : nx * 0.28;
-    var cy = Number.isFinite(centerY) ? centerY : ny * 0.5;
+    var r = isFiniteNumber(radiusPx) ? clamp(radiusPx, 2, Math.min(nx, ny) / 3) : Math.max(3, ny * 0.055);
+    var cx = isFiniteNumber(centerX) ? centerX : nx * 0.28;
+    var cy = isFiniteNumber(centerY) ? centerY : ny * 0.5;
     var mask = new Uint8Array(nx * ny);
     var r2 = r * r;
     var minX = Math.max(1, Math.floor(cx - r - 1));
@@ -293,13 +318,13 @@
 
   function generateBluffBodyMask(nx, ny, widthPx, heightPx) {
     validateGrid(nx, ny);
-    var w = Number.isFinite(widthPx) ? widthPx : nx * 0.075;
-    var h = Number.isFinite(heightPx) ? heightPx : ny * 0.22;
+    var w = Math.round(isFiniteNumber(widthPx) ? clamp(widthPx, 1, nx - 2) : nx * 0.075);
+    var h = Math.round(isFiniteNumber(heightPx) ? clamp(heightPx, 1, ny - 2) : ny * 0.22);
     var x0 = Math.floor(nx * 0.30);
     var y0 = Math.floor(ny * 0.5 - h / 2);
     var mask = new Uint8Array(nx * ny);
-    for (var j = Math.max(1, y0); j <= Math.min(ny - 2, y0 + h); j++) {
-      for (var i = Math.max(1, x0); i <= Math.min(nx - 2, x0 + w); i++) {
+    for (var j = Math.max(1, y0); j < Math.min(ny - 1, y0 + h); j++) {
+      for (var i = Math.max(1, x0); i < Math.min(nx - 1, x0 + w); i++) {
         mask[indexOf(nx, i, j)] = 1;
       }
     }
@@ -307,7 +332,7 @@
     return attachMaskMetadata(mask, {
       kind: 'bluff', code: 'BLUFF', nx: nx, ny: ny, widthPx: w, heightPx: h,
       solidCount: b.count, bounds: b,
-      projectedHeight: h, referenceLength: h, shape: 'Bluff body'
+      projectedHeight: b.yMax - b.yMin + 1, referenceLength: b.yMax - b.yMin + 1, clipped: b.xMax - b.xMin + 1 < w, shape: 'Bluff body'
     });
   }
 
@@ -317,8 +342,8 @@
    */
   function generateVenturiMask(nx, ny, throatRatio, lipFraction) {
     validateGrid(nx, ny);
-    var tr = Number.isFinite(throatRatio) ? clamp(throatRatio, 0.2, 0.85) : 0.5;
-    var lip = Number.isFinite(lipFraction) ? clamp(lipFraction, 0.05, 0.45) : 0.18;
+    var tr = isFiniteNumber(throatRatio) ? clamp(throatRatio, 0.2, 0.85) : 0.5;
+    var lip = isFiniteNumber(lipFraction) ? clamp(lipFraction, 0.05, 0.45) : 0.18;
     var mask = new Uint8Array(nx * ny);
     var half = ny / 2;
     var throatHalf = half * tr;
@@ -364,12 +389,12 @@
 
   function generateObstacleMask(kind, options) {
     var o = options || {};
-    var nx = o.nx || 240;
-    var ny = o.ny || 100;
+    var nx = o.nx == null ? 240 : o.nx;
+    var ny = o.ny == null ? 100 : o.ny;
     var k = String(kind || '').toLowerCase();
-    if (k === 'naca0012' || k === 'naca4' || k === 'airfoil' || /^[0-9]{4}$/.test(k)) {
-      var code = /^[0-9]{4}$/.test(k) ? k : (o.code || '0012');
-      return generateNaca4Mask(code, o.chordPx || nx * 0.32, o.angleDeg || 0, nx, ny);
+    if (/^naca[0-9]{4}$/.test(k) || k === 'naca4' || k === 'airfoil' || /^[0-9]{4}$/.test(k)) {
+      var code = /^naca[0-9]{4}$/.test(k) ? k.slice(4) : /^[0-9]{4}$/.test(k) ? k : (o.code || '0012');
+      return generateNaca4Mask(code, o.chordPx == null ? nx * 0.32 : o.chordPx, o.angleDeg == null ? 0 : o.angleDeg, nx, ny);
     }
     if (k === 'cylinder' || k === 'karman') {
       return generateCylinderMask(o.radiusPx || ny * 0.055, nx, ny, o.centerX, o.centerY);
@@ -386,8 +411,8 @@
   /* ---------------- D2Q9 BGK solver ---------------- */
 
   function effectiveParameters(u0, viscosity) {
-    var u = clamp(Number.isFinite(u0) ? u0 : 0.08, MIN_SPEED, MAX_SPEED);
-    var nu = clamp(Number.isFinite(viscosity) ? viscosity : 0.02, MIN_VISCOSITY, MAX_VISCOSITY);
+    var u = clamp(isFiniteNumber(u0) ? u0 : 0.08, MIN_SPEED, MAX_SPEED);
+    var nu = clamp(isFiniteNumber(viscosity) ? viscosity : 0.02, MIN_VISCOSITY, MAX_VISCOSITY);
     var tau = 3 * nu + 0.5;
     return {
       u0: u, viscosity: nu, tau: tau, omega: 1 / tau,
@@ -432,19 +457,20 @@
     state.forceHistory = [];
     state.unstable = false;
     state.sanitizedNodes = 0;
+    state.lastSanitizedNodes = 0;
+    state.stabilityStopped = false;
+    state.initialFluidMass = state.cellCount - maskBounds(state.mask, nx, ny).count;
   }
 
   function createWindTunnel(nx, ny, u0, viscosity, options) {
     validateGrid(nx, ny);
     var o = options || {};
     var p = effectiveParameters(u0, viscosity);
-    var obstacle = o.mask || generateObstacleMask(o.obstacle || 'cylinder', {
+    var obstacle = Object.prototype.hasOwnProperty.call(o, 'mask') ? o.mask : generateObstacleMask(o.obstacle || 'cylinder', {
       nx: nx, ny: ny, code: o.code, angleDeg: o.angleDeg,
       chordPx: o.chordPx, radiusPx: o.radiusPx, throatRatio: o.throatRatio
     });
-    if (obstacle.length !== nx * ny) {
-      throw new RangeError('Obstacle mask length must equal nx * ny');
-    }
+    obstacle = validateMask(obstacle, nx, ny);
     var fields = allocateFields(nx, ny);
     var state = {
       version: VERSION,
@@ -457,36 +483,46 @@
       inflowMode: o.inflowMode === 'equilibrium' ? 'equilibrium' : 'zou-he',
       outflowMode: o.outflowMode === 'equilibrium' ? 'equilibrium' : 'convective',
       wallMode: o.wallMode === 'free-slip' ? 'free-slip' : 'bounce-back',
-      seed: Number.isFinite(o.seed) ? o.seed : 1,
-      perturbation: Number.isFinite(o.perturbation) ? o.perturbation : 0.004,
+      seed: isFiniteNumber(o.seed) ? o.seed : 1,
+      perturbation: isFiniteNumber(o.perturbation) ? clamp(o.perturbation, 0, 0.02) : 0.0008,
       time: 0, forceX: 0, forceY: 0, forceHistory: [],
       unstable: false, sanitizedNodes: 0,
       parametersClamped: p.clamped
     };
     initializeFlow(state);
-    state.referenceLength = Number.isFinite(obstacle.referenceLength) ? obstacle.referenceLength : ny * 0.1;
-    state.referenceHeight = Number.isFinite(obstacle.projectedHeight) ? obstacle.projectedHeight : ny * 0.1;
+    state.referenceLength = positiveReference(obstacle.referenceLength, ny * 0.1);
+    state.referenceHeight = positiveReference(obstacle.forceReferenceLength, positiveReference(obstacle.projectedHeight, ny * 0.1));
     state.reynolds = state.u0 * state.referenceLength / state.viscosity;
     return state;
   }
 
   function setObstacle(state, mask, reset) {
-    if (mask.length !== state.cellCount) {
-      throw new RangeError('Obstacle mask length must equal nx * ny');
-    }
+    mask = validateMask(mask, state.nx, state.ny);
     state.mask = mask;
     state.obstacle = mask;
-    state.referenceLength = Number.isFinite(mask.referenceLength) ? mask.referenceLength : state.ny * 0.1;
-    state.referenceHeight = Number.isFinite(mask.projectedHeight) ? mask.projectedHeight : state.ny * 0.1;
+    state.referenceLength = positiveReference(mask.referenceLength, state.ny * 0.1);
+    state.referenceHeight = positiveReference(mask.forceReferenceLength, positiveReference(mask.projectedHeight, state.ny * 0.1));
     state.reynolds = state.u0 * state.referenceLength / state.viscosity;
     if (reset !== false) initializeFlow(state);
+    else {
+      for (var cell = 0; cell < state.cellCount; cell++) {
+        if (mask[cell] === 1) {
+          writeEquilibrium(state.f, baseOf(cell), 1, 0, 0);
+          writeEquilibrium(state.fStar, baseOf(cell), 1, 0, 0);
+          state.rho[cell] = 1; state.ux[cell] = 0; state.uy[cell] = 0;
+        }
+      }
+      refreshMacroscopic(state, true);
+      state.forceHistory = []; state.forceX = 0; state.forceY = 0;
+      state.initialFluidMass = state.rho.reduce(function (sum, value, index) { return state.mask[index] === 1 ? sum : sum + value; }, 0);
+    }
     return state;
   }
 
   function setFlowParameters(state, u0, viscosity) {
     var p = effectiveParameters(
-      Number.isFinite(u0) ? u0 : state.u0,
-      Number.isFinite(viscosity) ? viscosity : state.viscosity
+      isFiniteNumber(u0) ? u0 : state.u0,
+      isFiniteNumber(viscosity) ? viscosity : state.viscosity
     );
     state.u0 = p.u0;
     state.viscosity = p.viscosity;
@@ -500,71 +536,38 @@
 
   /* Macroscopic moments: rho = sum f_i, rho u = sum c_i f_i. */
   function refreshMacroscopic(state, sanitize) {
-    var n = state.cellCount;
-    var f = state.f;
-    var rhoArr = state.rho;
-    var uxArr = state.ux;
-    var uyArr = state.uy;
-    var mask = state.mask;
-    var sanitized = 0;
-    for (var cell = 0; cell < n; cell++) {
-      var b = baseOf(cell);
-      var rho = 0;
-      var mx = 0;
-      var my = 0;
-      var q;
-      for (q = 0; q < Q9; q++) {
-        var v = f[b + q];
-        if (!Number.isFinite(v)) {
-          v = W[q];
-          f[b + q] = v;
-          sanitized++;
-        } else if (v < MIN_POPULATION || v > MAX_POPULATION) {
-          v = clamp(v, MIN_POPULATION, MAX_POPULATION);
-          f[b + q] = v;
-          sanitized++;
-        }
-        rho += v;
-        mx += CX[q] * v;
-        my += CY[q] * v;
+    var f = state.f, rhoArr = state.rho, uxArr = state.ux, uyArr = state.uy;
+    var corrected = 0;
+    for (var cell = 0; cell < state.cellCount; cell++) {
+      var base = baseOf(cell);
+      if (state.mask[cell] === 1) {
+        writeEquilibrium(f, base, 1, 0, 0);
+        rhoArr[cell] = 1; uxArr[cell] = 0; uyArr[cell] = 0;
+        continue;
       }
+      var rho = 0, mx = 0, my = 0, repair = false;
+      for (var q = 0; q < Q9; q++) {
+        var value = f[base + q];
+        if (!isFiniteNumber(value) || value < MIN_POPULATION || value > MAX_POPULATION) {
+          repair = true;
+          value = W[q];
+        }
+        rho += value; mx += CX[q] * value; my += CY[q] * value;
+      }
+      if (rho < MIN_DENSITY || rho > MAX_DENSITY) repair = true;
       rho = clamp(rho, MIN_DENSITY, MAX_DENSITY);
-      var ux = mx / rho;
-      var uy = my / rho;
-      var sp = Math.sqrt(ux * ux + uy * uy);
-      if (!Number.isFinite(sp)) {
-        ux = 0;
-        uy = 0;
-        sanitized++;
-      } else if (sp > MAX_LATTICE_SPEED) {
-        /*
-         * Rescale the entire distribution toward equilibrium at a bounded
-         * velocity. Clamping the macroscopic moment alone leaves the high
-         * speed populations untouched, which re-triggers the instability on
-         * the next collision step.
-         */
-        var scale = MAX_LATTICE_SPEED / sp;
-        ux *= scale;
-        uy *= scale;
-        for (var r = 0; r < Q9; r++) {
-          var feq = equilibrium(rho, ux, uy, r);
-          f[b + r] = 0.5 * f[b + r] + 0.5 * feq;
-        }
-        sanitized++;
-      }
-      if (mask[cell] === 1) {
-        rhoArr[cell] = 1;
-        uxArr[cell] = 0;
-        uyArr[cell] = 0;
-      } else {
-        rhoArr[cell] = rho;
-        uxArr[cell] = ux;
-        uyArr[cell] = uy;
-      }
+      var ux = mx / rho, uy = my / rho;
+      var speed = vectorLength(ux, uy);
+      if (!isFiniteNumber(speed)) { ux = 0; uy = 0; repair = true; }
+      else if (speed > MAX_LATTICE_SPEED) { ux *= MAX_LATTICE_SPEED / speed; uy *= MAX_LATTICE_SPEED / speed; repair = true; }
+      /* A repair changes the populations and the moments together. */
+      if (repair) { writeEquilibrium(f, base, rho, ux, uy); corrected++; }
+      rhoArr[cell] = rho; uxArr[cell] = ux; uyArr[cell] = uy;
     }
-    state.sanitizedNodes += sanitized;
-    if (sanitize && sanitized > 0) state.unstable = true;
-    return sanitized;
+    state.sanitizedNodes += corrected;
+    state.lastSanitizedNodes = corrected;
+    if (sanitize && corrected) state.unstable = true;
+    return corrected;
   }
 
   function collide(state) {
@@ -602,6 +605,7 @@
     for (var j = 0; j < ny; j++) {
       var cell = indexOf(nx, 0, j);
       var b = baseOf(cell);
+      if (state.mask[cell] === 1) { writeEquilibrium(f, b, 1, 0, 0); continue; }
       var f0 = f[b + 0];
       var f2 = f[b + 2];
       var f3 = f[b + 3];
@@ -721,7 +725,7 @@
 
   function applyPerturbation(state) {
     /* Tiny deterministic transverse kick seeds the Karman vortex street. */
-    if (state.perturbation <= 0 || state.time !== 0) return;
+    if (state.perturbation <= 0 || state.time !== 0 || !state.mask.bounds.count) return;
     var nx = state.nx;
     var ny = state.ny;
     var b = state.mask.bounds || maskBounds(state.mask, nx, ny);
@@ -730,7 +734,7 @@
     for (var j = Math.max(1, cy - 3); j <= Math.min(ny - 2, cy + 3); j++) {
       var cell = indexOf(nx, cx, j);
       if (state.mask[cell] === 1) continue;
-      var d = 0.02 * state.u0 * Math.sin((j - cy) * 1.3 + state.seed);
+      var d = state.perturbation * Math.sin((j - cy) * 1.3 + state.seed);
       state.uy[cell] += d;
       writeEquilibrium(state.f, baseOf(cell), state.rho[cell], state.ux[cell], state.uy[cell]);
     }
@@ -742,11 +746,11 @@
     var cl = -state.forceY / q;
     var entry = {
       step: state.time,
-      fx: round(state.forceX, 6),
-      fy: round(state.forceY, 6),
-      cd: round(cd, 5),
-      cl: round(cl, 5),
-      ld: round(Math.abs(cd) > 1e-9 ? cl / cd : 0, 5)
+      fx: state.forceX,
+      fy: state.forceY,
+      cd: cd,
+      cl: cl,
+      ld: Math.abs(cd) > 1e-9 ? cl / cd : 0
     };
     state.forceHistory.push(entry);
     if (state.forceHistory.length > HISTORY_LIMIT) state.forceHistory.shift();
@@ -755,7 +759,9 @@
 
   /* Performs `steps` collision and streaming cycles. */
   function stepLBM(state, steps) {
-    var count = Number.isFinite(steps) ? Math.max(0, Math.floor(steps)) : 1;
+    var count = steps == null ? 1 : steps;
+    if (!Number.isInteger(count) || count < 0 || count > 100000) throw new RangeError('steps must be an integer between 0 and 100000');
+    if (state.stabilityStopped) throw new RangeError('Solver stopped at its stability limit. Reset with lower speed or higher viscosity.');
     if (count === 0) return state;
     var s;
     for (s = 0; s < count; s++) {
@@ -768,8 +774,9 @@
       state.time += 1;
       if (state.time % 5 === 0 || state.time === 1) recordForce(state);
       if (state.unstable && state.sanitizedNodes > state.cellCount * 4) {
-        initializeFlow(state);
-        break;
+        state.stabilityStopped = true;
+        refreshMacroscopic(state, true);
+        throw new RangeError('Numerical stability limit reached at step ' + state.time + '. Increase viscosity or lower inflow speed.');
       }
     }
     refreshMacroscopic(state, true);
@@ -778,17 +785,18 @@
 
   /* ---------------- Field diagnostics ---------------- */
 
-  function derivative(arr, nx, ny, i, j, axis) {
-    var ip = Math.min(nx - 1, i + 1);
-    var im = Math.max(0, i - 1);
-    var jp = Math.min(ny - 1, j + 1);
-    var jm = Math.max(0, j - 1);
-    if (axis === 0) {
-      var dx = ip - im;
-      return dx === 0 ? 0 : (arr[indexOf(nx, ip, j)] - arr[indexOf(nx, im, j)]) / dx;
-    }
-    var dy = jp - jm;
-    return dy === 0 ? 0 : (arr[indexOf(nx, i, jp)] - arr[indexOf(nx, i, jm)]) / dy;
+  function derivative(arr, nx, ny, i, j, axis, mask) {
+    var cell = indexOf(nx, i, j);
+    var lo = axis === 0 ? i - 1 : j - 1;
+    var hi = axis === 0 ? i + 1 : j + 1;
+    var limit = axis === 0 ? nx : ny;
+    var left = axis === 0 ? cell - 1 : cell - nx;
+    var right = axis === 0 ? cell + 1 : cell + nx;
+    var hasLeft = lo >= 0 && mask[left] !== 1;
+    var hasRight = hi < limit && mask[right] !== 1;
+    var span = Number(hasLeft) + Number(hasRight);
+    if (!span) return 0;
+    return ((hasRight ? arr[right] : arr[cell]) - (hasLeft ? arr[left] : arr[cell])) / span;
   }
 
   function computeFields(state) {
@@ -797,7 +805,9 @@
     var n = state.cellCount;
     var speed = new Float64Array(n);
     var curl = new Float64Array(n);
+    var vorticity = new Float64Array(n);
     var cp = new Float64Array(n);
+    var schlieren = new Float64Array(n);
     var mask = state.mask;
     var ux = state.ux;
     var uy = state.uy;
@@ -811,30 +821,24 @@
         if (mask[cell] === 1) continue;
         var vx = ux[cell];
         var vy = uy[cell];
-        var vxL = i > 0 && mask[cell - 1] !== 1 ? ux[cell - 1] : vx;
-        var vxR = i < nx - 1 && mask[cell + 1] !== 1 ? ux[cell + 1] : vx;
-        var vxU = j > 0 && mask[cell - nx] !== 1 ? ux[cell - nx] : vx;
-        var vxD = j < ny - 1 && mask[cell + nx] !== 1 ? ux[cell + nx] : vx;
-        var vyL = i > 0 && mask[cell - 1] !== 1 ? uy[cell - 1] : vy;
-        var vyR = i < nx - 1 && mask[cell + 1] !== 1 ? uy[cell + 1] : vy;
-        var vyU = j > 0 && mask[cell - nx] !== 1 ? uy[cell - nx] : vy;
-        var vyD = j < ny - 1 && mask[cell + nx] !== 1 ? uy[cell + nx] : vy;
-        var dx = Math.max(1, (i < nx - 1 ? 1 : 0) + (i > 0 ? 1 : 0));
-        var dy = Math.max(1, (j < ny - 1 ? 1 : 0) + (j > 0 ? 1 : 0));
-        /* Screen-space curl d(uy)/dx - d(ux)/dy. Physical y-up vorticity is its negative. */
-        curl[cell] = (vyR - vyL) / dx - (vxD - vxU) / dy;
+        /* One-sided differences use the actual fluid stencil at solids and edges. */
+        curl[cell] = derivative(uy, nx, ny, i, j, 0, mask) - derivative(ux, nx, ny, i, j, 1, mask);
+        vorticity[cell] = -curl[cell];
+        var drx = derivative(rho, nx, ny, i, j, 0, mask);
+        var dry = derivative(rho, nx, ny, i, j, 1, mask);
+        schlieren[cell] = vectorLength(drx, dry);
         speed[cell] = Math.sqrt(vx * vx + vy * vy);
         cp[cell] = ((rho[cell] - state.rho0) * CS2) / dynamicPressure;
       }
     }
-    return { speed: speed, curl: curl, cp: cp };
+    return { speed: speed, curl: curl, vorticity: vorticity, cp: cp, schlieren: schlieren };
   }
 
-  function centerlineProfile(state) {
+  function centerlineProfile(state, fields) {
     var nx = state.nx;
     var j = Math.floor(state.ny / 2);
     var out = [];
-    var f = computeFields(state);
+    var f = fields || computeFields(state);
     for (var i = 0; i < nx; i++) {
       var cell = indexOf(nx, i, j);
       if (state.mask[cell] === 1) continue;
@@ -850,10 +854,10 @@
     return out;
   }
 
-  function wakeProfile(state, xFraction) {
-    var xf = Number.isFinite(xFraction) ? clamp(xFraction, 0, 1) : 0.75;
+  function wakeProfile(state, xFraction, fields) {
+    var xf = isFiniteNumber(xFraction) ? clamp(xFraction, 0, 1) : 0.75;
     var x = Math.min(state.nx - 2, Math.max(1, Math.round(state.nx * xf)));
-    var f = computeFields(state);
+    var f = fields || computeFields(state);
     var out = [];
     for (var j = 0; j < state.ny; j++) {
       var cell = indexOf(state.nx, x, j);
@@ -923,12 +927,24 @@
     var sumSpeed = 0;
     var sumVorticity = 0;
     var fluid = 0;
+    var fluidMass = 0, kineticEnergy = 0, minDensity = Infinity, maxDensity = -Infinity;
+    var inletFlux = 0, outletFlux = 0, inletResidual = 0, nonFiniteNodes = 0;
     for (var cell = 0; cell < n; cell++) {
       if (state.mask[cell] === 1) continue;
       fluid++;
+      var density = state.rho[cell];
+      fluidMass += density;
+      minDensity = Math.min(minDensity, density); maxDensity = Math.max(maxDensity, density);
       var s = fields.speed[cell];
       var c = fields.curl[cell];
       var p = fields.cp[cell];
+      if (!isFiniteNumber(s) || !isFiniteNumber(c) || !isFiniteNumber(p) || !isFiniteNumber(density)) nonFiniteNodes++;
+      kineticEnergy += 0.5 * density * s * s;
+      if (cell % state.nx === 0) {
+        inletFlux += density * state.ux[cell];
+        inletResidual = Math.max(inletResidual, Math.abs(state.ux[cell] - state.u0), Math.abs(state.uy[cell]));
+      }
+      if (cell % state.nx === state.nx - 1) outletFlux += density * state.ux[cell];
       if (s > maxSpeed) maxSpeed = s;
       if (Math.abs(c) > maxCurl) maxCurl = Math.abs(c);
       if (p < minCp) minCp = p;
@@ -937,7 +953,7 @@
       sumVorticity += Math.abs(c);
     }
     if (fluid === 0) { minCp = 0; maxCp = 0; }
-    var wake = wakeProfile(state, 0.75);
+    var wake = wakeProfile(state, 0.75, fields);
     var wakeDeficit = 0;
     var wakeSamples = 0;
     for (var k = 0; k < wake.samples.length; k++) {
@@ -961,14 +977,80 @@
       wakeDeficit: wakeSamples > 0 ? wakeDeficit / wakeSamples : 0,
       unstable: state.unstable,
       sanitizedNodes: state.sanitizedNodes,
+      lastSanitizedNodes: state.lastSanitizedNodes,
+      stabilityStopped: state.stabilityStopped,
+      fluidCount: fluid, fluidMass: fluidMass, kineticEnergy: kineticEnergy,
+      minDensity: minDensity, maxDensity: maxDensity,
+      maxMach: maxSpeed / Math.sqrt(CS2),
+      massChangeFraction: (fluidMass - state.initialFluidMass) / state.initialFluidMass,
+      inletFlux: inletFlux, outletFlux: outletFlux,
+      fluxImbalanceFraction: Math.abs(inletFlux) > 1e-12 ? (inletFlux - outletFlux) / inletFlux : 0,
+      inletResidual: inletResidual, nonFiniteNodes: nonFiniteNodes,
+      coefficientReference: state.referenceHeight,
       fields: fields,
-      centerline: centerlineProfile(state),
+      centerline: centerlineProfile(state, fields),
       wake: wake,
       forceHistory: state.forceHistory.slice()
     };
   }
 
   /* ---------------- Telemetry export ---------------- */
+
+  function surfacePressureProfile(state, fields) {
+    var mask = state.mask;
+    if (mask.kind !== 'naca4' || !mask.coordinates) return { rows: [], clPressure: null, cdPressure: null, convention: 'NACA surface only' };
+    var coords = mask.coordinates, chord = mask.chordPx;
+    var angle = mask.angleDeg * Math.PI / 180, ca = Math.cos(angle), sa = Math.sin(angle);
+    var cp = (fields || computeFields(state)).cp;
+    var upper = [], lower = [], rows = [];
+    function surfacePoint(point) {
+      var x = (point.x - 0.25) * chord, y = -point.y * chord;
+      return { x: 0.32 * state.nx + x * ca - y * sa, y: 0.5 * state.ny + x * sa + y * ca };
+    }
+    function sample(point, normalX, normalY) {
+      for (var distance = 1.5; distance <= 6; distance += 0.5) {
+        var x = point.x + normalX * distance - 0.5, y = point.y + normalY * distance - 0.5;
+        var i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+        var value = 0, weight = 0;
+        for (var di = 0; di <= 1; di++) for (var dj = 0; dj <= 1; dj++) {
+          var ii = i + di, jj = j + dj;
+          if (ii < 0 || ii >= state.nx || jj < 0 || jj >= state.ny) continue;
+          var cell = indexOf(state.nx, ii, jj);
+          if (mask[cell] === 1) continue;
+          var w = (di ? fx : 1 - fx) * (dj ? fy : 1 - fy);
+          value += w * cp[cell]; weight += w;
+        }
+        if (weight > 0.95) return value / weight;
+      }
+      return null;
+    }
+    for (var k = 0; k < coords.upper.length; k++) {
+      var theta = Math.atan(coords.camberLine[k].slope);
+      var nx = -Math.sin(theta), ny = -Math.cos(theta);
+      var rx = nx * ca - ny * sa, ry = nx * sa + ny * ca;
+      var u = surfacePoint(coords.upper[k]), l = surfacePoint(coords.lower[k]);
+      var cpu = sample(u, rx, ry), cpl = sample(l, -rx, -ry);
+      if (cpu == null || cpl == null) continue;
+      rows.push({ xc: coords.camberLine[k].x, cpUpper: cpu, cpLower: cpl });
+      upper.push({ x: u.x, y: u.y, cp: cpu }); lower.push({ x: l.x, y: l.y, cp: cpl });
+    }
+    var contour = upper.concat(lower.reverse()), cl = 0, cd = 0;
+    for (var index = 0; index < contour.length; index++) {
+      var a = contour[index], b = contour[(index + 1) % contour.length], pressure = 0.5 * (a.cp + b.cp);
+      cd -= pressure * (b.y - a.y) / chord;
+      cl -= pressure * (b.x - a.x) / chord;
+    }
+    return { rows: rows, clPressure: rows.length > 1 ? cl : null, cdPressure: rows.length > 1 ? cd : null, convention: 'Closed-contour pressure force / (dynamic pressure * chord), sampled 1.5 to 6 cells along surface normals; excludes shear' };
+  }
+
+  var SCENARIOS = {
+    symmetric: { id: 'symmetric', label: 'Symmetry baseline', obstacle: 'naca0012', code: '0012', angleDeg: 0, u0: 0.06, viscosity: 0.026, chordPx: 72, field: 'cp', warmupSteps: 240, description: 'A symmetric section at zero incidence. Compare upper and lower pressure and near-zero lift.' },
+    lift: { id: 'lift', label: 'Make lift visible', obstacle: 'naca2412', code: '2412', angleDeg: 8, u0: 0.07, viscosity: 0.024, chordPx: 77, field: 'cp', warmupSteps: 240, description: 'Camber and incidence build a measurable pressure difference. Inspect pressure and link forces.' },
+    wake: { id: 'wake', label: 'Follow a vortex wake', obstacle: 'cylinder', angleDeg: 0, u0: 0.085, viscosity: 0.01, chordPx: 77, field: 'curl', warmupSteps: 400, description: 'A cylinder creates separated shear layers. Probe velocity deficit and opposite vorticity signs.' },
+    venturi: { id: 'venturi', label: 'Accelerate through a throat', obstacle: 'venturi', angleDeg: 0, u0: 0.045, viscosity: 0.03, chordPx: 77, field: 'speed', warmupSteps: 240, description: 'A narrowing channel accelerates flow. Move the probe from inlet to throat and compare speeds.' }
+  };
+  function getScenario(id) { if (!Object.prototype.hasOwnProperty.call(SCENARIOS, id)) throw new RangeError('Unknown scenario: ' + id); return JSON.parse(JSON.stringify(SCENARIOS[id])); }
+  function listScenarios() { return Object.keys(SCENARIOS).map(getScenario); }
 
   function csvEscape(value) {
     var s = String(value);
@@ -981,9 +1063,9 @@
     var rows = ['y,ux,uy,speed,rho,cp,curl,solid'];
     for (var k = 0; k < wake.samples.length; k++) {
       var s = wake.samples[k];
-      rows.push([
-        s.y, s.ux, s.uy, s.speed, s.rho, s.cp, s.curl, s.solid
-      ].map(csvEscape).join(','));
+      var values = [s.y, s.ux, s.uy, s.speed, s.rho, s.cp, s.curl, s.solid];
+      if (values.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite wake CSV');
+      rows.push(values.map(csvEscape).join(','));
     }
     return rows.join('\n') + '\n';
   }
@@ -992,7 +1074,9 @@
     var rows = ['step,fx,fy,cd,cl,ld'];
     for (var k = 0; k < state.forceHistory.length; k++) {
       var e = state.forceHistory[k];
-      rows.push([e.step, e.fx, e.fy, e.cd, e.cl, e.ld].map(csvEscape).join(','));
+      var values = [e.step, e.fx, e.fy, e.cd, e.cl, e.ld];
+      if (values.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite force CSV');
+      rows.push(values.map(csvEscape).join(','));
     }
     return rows.join('\n') + '\n';
   }
@@ -1005,18 +1089,23 @@
     var snapshot = {
       format: 'spectralflow-snapshot',
       version: VERSION,
+      schemaVersion: 2,
       generatedBy: 'SpectralFlow D2Q9 BGK solver',
       simulation: {
         nx: state.nx, ny: state.ny, time: state.time,
         u0: state.u0, viscosity: state.viscosity, tau: state.tau,
         omega: state.omega, reynolds: d.reynolds,
+        inflowMode: state.inflowMode, outflowMode: state.outflowMode, wallMode: state.wallMode,
+        seed: state.seed, perturbation: state.perturbation,
+        referenceLength: state.referenceLength, coefficientReference: state.referenceHeight,
+        initialFluidMass: state.initialFluidMass,
         obstacle: {
           kind: state.obstacle.kind || 'custom',
           code: state.obstacle.code || '',
           shape: state.obstacle.shape || 'custom',
           solidCount: state.obstacle.solidCount || 0,
-          angleDeg: round(finite(state.obstacle.angleDeg, 0), 4),
-          chordPx: round(finite(state.obstacle.chordPx, 0), 4)
+          angleDeg: finite(state.obstacle.angleDeg, 0),
+          chordPx: finite(state.obstacle.chordPx, 0)
         },
         unstable: state.unstable,
         sanitizedNodes: state.sanitizedNodes
@@ -1025,7 +1114,7 @@
         cd: round(d.cd, 6), cl: round(d.cl, 6), ld: round(d.ld, 6),
         meanCd: round(d.meanCd, 6), meanCl: round(d.meanCl, 6),
         meanLd: round(d.meanLd, 6),
-        fx: round(d.fx, 6), fy: round(d.fy, 6),
+        fx: d.fx, fy: d.fy,
         reynolds: round(d.reynolds, 4),
         maxSpeed: round(d.maxSpeed, 6), meanSpeed: round(d.meanSpeed, 6),
         maxAbsCurl: round(d.maxAbsCurl, 6), meanAbsCurl: round(d.meanAbsCurl, 6),
@@ -1036,6 +1125,14 @@
       centerlineProfile: d.centerline,
       forceHistory: d.forceHistory
     };
+    snapshot.simulation.stabilityStopped = state.stabilityStopped;
+    snapshot.simulation.obstacle.coefficientConvention = state.obstacle.coefficientConvention || 'projected height times unit span';
+    snapshot.simulation.obstacle.projectedHeight = positiveReference(state.obstacle.projectedHeight, state.referenceHeight);
+    snapshot.simulation.obstacle.clipped = !!state.obstacle.clipped;
+    snapshot.diagnostics.fluidMass = d.fluidMass;
+    snapshot.diagnostics.inletResidual = d.inletResidual;
+    snapshot.diagnostics.maxMach = d.maxMach;
+    if (d.nonFiniteNodes) throw new RangeError('Cannot export nonfinite fluid fields');
     if (includeFields) {
       snapshot.fields = {
         layout: 'row-major, j from 0 to ny-1, i from 0 to nx-1',
@@ -1049,8 +1146,85 @@
         solid: Array.prototype.slice.call(state.mask).map(function (v) { return v ? 1 : 0; })
       };
       if (snapshot.fields.rho.length !== n) throw new Error('Field export length mismatch');
+      snapshot.fields.keys.forEach(function (key) { if (snapshot.fields[key].some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite ' + key + ' fields'); });
+    }
+    if (o.includePopulations) {
+      snapshot.populations = Array.prototype.slice.call(state.f);
+      if (snapshot.populations.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite populations');
     }
     return JSON.stringify(snapshot, null, 2);
+  }
+
+  function importSnapshotJSON(source) {
+    var snapshot = typeof source === 'string' ? JSON.parse(source) : source;
+    if (!snapshot || snapshot.format !== 'spectralflow-snapshot' || snapshot.schemaVersion !== 2) throw new RangeError('Unsupported SpectralFlow checkpoint schema');
+    var s = snapshot.simulation;
+    if (!s || !snapshot.fields || !Array.isArray(snapshot.fields.solid) || !Array.isArray(snapshot.populations)) throw new RangeError('A resumable checkpoint needs fields and populations');
+    validateGrid(s.nx, s.ny);
+    if (!Number.isSafeInteger(s.time) || s.time < 0 || !isFiniteNumber(s.u0) || s.u0 < MIN_SPEED || s.u0 > MAX_SPEED || !isFiniteNumber(s.viscosity) || s.viscosity < MIN_VISCOSITY || s.viscosity > MAX_VISCOSITY) throw new RangeError('Invalid checkpoint operating conditions');
+    if (!isFiniteNumber(s.seed) || !isFiniteNumber(s.perturbation) || s.perturbation < 0 || s.perturbation > 0.02) throw new RangeError('Invalid checkpoint disturbance parameters');
+    ['rho', 'ux', 'uy', 'speed', 'cp', 'curl', 'solid'].forEach(function (key) {
+      var array = snapshot.fields[key];
+      if (!Array.isArray(array) || array.length !== s.nx * s.ny || array.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Invalid checkpoint field array: ' + key);
+    });
+    if (['zou-he', 'equilibrium'].indexOf(s.inflowMode) < 0 || ['convective', 'equilibrium'].indexOf(s.outflowMode) < 0 || ['bounce-back', 'free-slip'].indexOf(s.wallMode) < 0) throw new RangeError('Invalid checkpoint boundary conditions');
+    if (snapshot.populations.length !== s.nx * s.ny * Q9 || snapshot.populations.some(function (value) { return !isFiniteNumber(value) || value < MIN_POPULATION || value > MAX_POPULATION; })) throw new RangeError('Invalid checkpoint population array');
+    var mask = validateMask(snapshot.fields.solid, s.nx, s.ny);
+    var metadata = s.obstacle || {};
+    if (metadata.kind === 'naca4') {
+      var geometry = generateNaca4Mask(metadata.code, metadata.chordPx, metadata.angleDeg, s.nx, s.ny);
+      ['coordinates', 'polygon', 'maxCamber', 'camberPosition', 'thickness', 'projectedHeight'].forEach(function (key) { mask[key] = geometry[key]; });
+    }
+    ['kind', 'code', 'shape', 'angleDeg', 'chordPx', 'coefficientConvention', 'clipped'].forEach(function (key) { if (metadata[key] != null) mask[key] = metadata[key]; });
+    var maximumReference = Math.max(s.nx, s.ny) * 4;
+    if (!isFiniteNumber(s.referenceLength) || s.referenceLength <= 0 || s.referenceLength > maximumReference || !isFiniteNumber(s.coefficientReference) || s.coefficientReference <= 0 || s.coefficientReference > maximumReference) throw new RangeError('Invalid checkpoint reference lengths');
+    mask.referenceLength = s.referenceLength; mask.forceReferenceLength = s.coefficientReference;
+    if (!mask.projectedHeight) mask.projectedHeight = s.coefficientReference;
+    var state = createWindTunnel(s.nx, s.ny, s.u0, s.viscosity, { mask: mask, inflowMode: s.inflowMode, outflowMode: s.outflowMode, wallMode: s.wallMode, seed: s.seed, perturbation: s.perturbation });
+    state.f.set(snapshot.populations); state.fStar.set(snapshot.populations);
+    if (refreshMacroscopic(state, true)) throw new RangeError('Checkpoint populations require numerical repair');
+    var derived = computeFields(state);
+    ['rho', 'ux', 'uy', 'speed', 'cp', 'curl'].forEach(function (key) {
+      var array = state[key] || derived[key];
+      if (snapshot.fields[key].some(function (value, index) { return Math.abs(value - array[index]) > 0.000005001; })) throw new RangeError('Checkpoint fields disagree with populations: ' + key);
+    });
+    state.time = s.time;
+    state.forceHistory = Array.isArray(snapshot.forceHistory) ? snapshot.forceHistory.slice(-HISTORY_LIMIT).map(function (entry) {
+      if (!entry || !Number.isInteger(entry.step) || entry.step < 0 || entry.step > s.time || ['fx', 'fy', 'cd', 'cl', 'ld'].some(function (key) { return !isFiniteNumber(entry[key]); })) throw new RangeError('Invalid checkpoint force history');
+      return { step: entry.step, fx: entry.fx, fy: entry.fy, cd: entry.cd, cl: entry.cl, ld: entry.ld };
+    }) : [];
+    if (!snapshot.diagnostics || !isFiniteNumber(snapshot.diagnostics.fx) || !isFiniteNumber(snapshot.diagnostics.fy)) throw new RangeError('Invalid checkpoint force balance');
+    state.forceX = snapshot.diagnostics.fx; state.forceY = snapshot.diagnostics.fy;
+    state.unstable = !!s.unstable; state.stabilityStopped = !!s.stabilityStopped;
+    state.sanitizedNodes = Number.isInteger(s.sanitizedNodes) && s.sanitizedNodes >= 0 ? s.sanitizedNodes : 0;
+    if (!isFiniteNumber(s.initialFluidMass) || s.initialFluidMass <= 0 || s.initialFluidMass > state.cellCount * MAX_DENSITY) throw new RangeError('Invalid checkpoint initial mass');
+    state.initialFluidMass = s.initialFluidMass;
+    return state;
+  }
+
+  function verifySnapshotRoundTrip(state) {
+    var restored = importSnapshotJSON(exportSnapshotJSON(state, { includePopulations: true }));
+    var error = 0;
+    for (var i = 0; i < state.f.length; i++) error = Math.max(error, Math.abs(state.f[i] - restored.f[i]));
+    return { passes: error === 0 && restored.time === state.time, maxPopulationError: error, populations: state.f.length, cells: state.cellCount, time: state.time };
+  }
+
+  function sampleField(state, i, j, fields) {
+    if (!Number.isInteger(i) || !Number.isInteger(j) || i < 0 || i >= state.nx || j < 0 || j >= state.ny) throw new RangeError('Probe coordinates must be lattice indices inside the grid');
+    var cell = indexOf(state.nx, i, j), f = fields || computeFields(state);
+    return { i: i, j: j, solid: state.mask[cell] === 1, rho: state.rho[cell], ux: state.ux[cell], uy: state.uy[cell], speed: f.speed[cell], cp: f.cp[cell], vorticity: -f.curl[cell], schlieren: f.schlieren[cell] };
+  }
+
+  function exportFieldCSV(state) {
+    var fields = computeFields(state);
+    var rows = ['i,j,rho,ux,uy,speed,cp,vorticity,solid'];
+    for (var j = 0; j < state.ny; j++) for (var i = 0; i < state.nx; i++) {
+      var cell = j * state.nx + i;
+      var row = [i, j, state.rho[cell], state.ux[cell], state.uy[cell], fields.speed[cell], fields.cp[cell], -fields.curl[cell], state.mask[cell]];
+      if (row.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite field CSV');
+      rows.push(row.map(csvEscape).join(','));
+    }
+    return rows.join('\n') + '\n';
   }
 
   /* ---------------- Public API ---------------- */
@@ -1063,6 +1237,7 @@
       minViscosity: MIN_VISCOSITY, maxViscosity: MAX_VISCOSITY,
       minSpeed: MIN_SPEED, maxSpeed: MAX_SPEED,
       maxLatticeSpeed: MAX_LATTICE_SPEED,
+      maxCells: MAX_CELLS,
       minDensity: MIN_DENSITY, maxDensity: MAX_DENSITY
     },
     equilibrium: equilibrium,
@@ -1094,6 +1269,13 @@
     exportWakeProfileCSV: exportWakeProfileCSV,
     exportForceHistoryCSV: exportForceHistoryCSV,
     exportSnapshotJSON: exportSnapshotJSON,
+    importSnapshotJSON: importSnapshotJSON,
+    verifySnapshotRoundTrip: verifySnapshotRoundTrip,
+    exportFieldCSV: exportFieldCSV,
+    sampleField: sampleField,
+    surfacePressureProfile: surfacePressureProfile,
+    getScenario: getScenario,
+    listScenarios: listScenarios,
     csvEscape: csvEscape
   };
 

@@ -931,3 +931,72 @@ tbody tr:hover {
     border: 0;
   }
 }
+
+/* Experiment-first visual hierarchy. */
+:root { --page:#edf2f6; --surface-1:#fff; --surface-2:#f2f6fa; --surface-3:#e0eaf2; --text-primary:#132b3e; --text-secondary:#3b556c; --text-muted:#536e84; --border:#bdcdda; --border-strong:#526e82; --grid:#d7e3ed; --axis:#526e82; --accent:#115b9a; --series-1:#115b9a; --series-2:#a24420; --series-3:#087561; --serif:var(--sans); }
+:root[data-theme="dark"] { --page:#08121f; --surface-1:#0f1e2e; --surface-2:#14283b; --surface-3:#1f3950; --text-primary:#edf5ff; --text-secondary:#c2d4e6; --text-muted:#a0b9d0; --border:#34516b; --border-strong:#9bb8ce; --grid:#243e55; --axis:#7c9bb5; --accent:#83c6ff; --series-1:#83c6ff; --series-2:#ffb291; --series-3:#7ce0c1; --seq-100:#15314e; --seq-250:#205982; --seq-400:#337fac; --seq-550:#82c6ee; --seq-700:#e0f7ff; --div-neg:#6fbcff; --div-mid:#14283b; --div-pos:#ff9c84; --solid-ink:#a9bbcb; --ink-on-accent:#0b2235; }
+[hidden] { display:none !important; }
+h1 { font-size:clamp(30px,3.5vw,50px); letter-spacing:-.045em; line-height:1.12; }
+h1 span { color:var(--accent); }
+h2 { font-family:var(--sans); font-size:16px; letter-spacing:-.02em; }
+h3 { font-family:var(--sans); font-size:13px; }
+.report-header { background:transparent; border:0; align-items:center; padding-top:38px; padding-bottom:24px; }
+.report-id { font-size:11px; letter-spacing:.12em; color:var(--accent); margin-bottom:15px; }
+.report-sub { font-size:16px; max-width:66ch; line-height:1.55; margin-top:14px; }
+.report-title-block { max-width:900px; }
+.header-actions { max-width:250px; gap:8px; }
+.status-readout { padding:0; border:0; background:none; width:100%; color:var(--text-muted); font-size:11px; }
+main { border:0; background:transparent; gap:18px; }
+.btn { min-height:40px; border-radius:6px; border-color:var(--border); font-family:var(--sans); font-size:12px; padding:8px 12px; }
+.btn:hover { border-color:var(--accent); }
+.btn-primary { border-color:var(--accent); }
+.btn-small { min-height:36px; font-size:11px; }
+.showcase { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.showcase-heading { grid-column:1/-1; display:flex; gap:10px; justify-content:space-between; margin-bottom:4px; }
+.showcase-heading strong { font-size:14px; }
+.showcase-heading span { font-size:12px; color:var(--text-muted); }
+.scenario { display:flex; flex-direction:column; gap:8px; padding:16px; text-align:left; color:var(--text-primary); border:1px solid var(--border); border-radius:9px; background:var(--surface-1); cursor:pointer; }
+.scenario:hover { border-color:var(--accent); background:var(--surface-2); }
+.scenario > span { font:10px var(--mono); letter-spacing:.05em; color:var(--accent); }
+.scenario strong { font:600 14px var(--sans); }
+.scenario small { font:11px/1.5 var(--sans); color:var(--text-muted); }
+.health-strip { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font:11px/1.7 var(--mono); color:var(--text-muted); padding:12px 16px; border:1px solid var(--border); border-radius:7px; background:var(--surface-1); }
+.is-pass { color:var(--series-3); } .is-warning { color:var(--series-2); }
+.error-status { padding:12px 16px; border:1px solid var(--div-pos); border-radius:6px; color:var(--series-2); background:var(--surface-1); font-size:13px; }
+.bench-controls,.report-figure { border-radius:10px; overflow:hidden; }
+.section-bar { padding:14px 18px; }
+.control-grid { padding:18px; grid-template-columns:repeat(6,minmax(0,1fr)); }
+.control-field { min-width:0; }
+.control-field > label { font-size:11px; }
+.control-field select,.control-field input[type="text"] { min-height:40px; font-size:11px; border-radius:5px; border-color:var(--border); }
+.control-field input[type="range"] { height:30px; }
+.telemetry-cell { padding:14px 18px; }
+.telemetry-val { font-size:24px; }
+.telemetry-name { font-size:11px; }
+.telemetry-meta { font-size:10px; }
+.report-figure { padding:18px; }
+.figure-head { margin-bottom:16px; padding-bottom:12px; }
+.figure-sub { font-size:11px; line-height:1.6; max-width:70ch; }
+.figure-tag,.scale-caption { border-radius:4px; border-color:var(--border); font-size:10px; }
+.segmented { display:flex; flex-wrap:wrap; border-radius:5px; overflow:hidden; border-color:var(--border); }
+.seg { min-height:36px; padding:8px 12px; font:11px var(--sans); }
+.tunnel-frame { border-color:var(--border); border-radius:7px; overflow:hidden; }
+.tunnel-rulers-top { font-size:10px; padding:8px 12px; gap:12px; }
+.probe-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:14px; }
+#probeReadout { font:11px/1.8 var(--mono); color:var(--text-secondary); overflow-wrap:anywhere; }
+.probe-help { color:var(--text-muted); font-size:11px; margin-top:6px; }
+.chart-host,.section-figure { border-radius:6px; overflow:hidden; }
+.chart-host svg { touch-action:pan-y; }
+.plot-matrix { gap:18px; }
+.table-details > summary { min-height:32px; padding-top:8px; font-size:11px; }
+.table-scroll { border-radius:5px; }
+.spec-list { font-size:11px; border-radius:5px; }
+.spec-row { flex-wrap:wrap; }
+.formula { border-radius:5px; }
+.site-footer { font-size:11px; line-height:1.7; }
+.site-footer p { max-width:65ch; }
+@media(max-width:1100px) { .control-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .plot-matrix { grid-template-columns:1fr; } }
+@media(max-width:800px) { .showcase { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-header { flex-direction:column; align-items:flex-start; } .header-actions { max-width:none; } .status-readout { width:auto; } .showcase-heading { flex-direction:column; } }
+@media(max-width:580px) { .showcase { grid-template-columns:1fr; } .control-grid { grid-template-columns:repeat(2,minmax(0,1fr)); padding:14px; } .telemetry-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } .telemetry-val { font-size:20px; } .report-figure { padding:14px; } .legend-ticks { gap:8px; } .section-bar { padding:14px; } }
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+@media print { .showcase,.health-strip,.probe-bar,.probe-help,.error-status { display:none !important; } :root,:root[data-theme="dark"] { --page:#fff; --surface-1:#fff; --surface-2:#f2f2f2; --text-primary:#111; --text-secondary:#333; --text-muted:#444; --border:#999; } }

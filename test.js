@@ -497,7 +497,9 @@ test('cambered 2412 produces positive lift at zero geometric angle of attack', (
   const m = S.generateNaca4Mask('2412', 50, 0, NX, NY);
   const st = S.createWindTunnel(NX, NY, 0.08, 0.02, { mask: m });
   S.stepLBM(st, 300);
-  assert.ok(S.computeDiagnostics(st).meanCl > 0.1);
+  const d = S.computeDiagnostics(st);
+  assert.equal(st.referenceHeight, 50, 'airfoil coefficients use chord times unit span');
+  assert.ok(d.meanCl > 0.01, `cambered section lift ${d.meanCl}`);
 });
 
 test('force history records step, fx, fy, cd, cl, and ld', () => {

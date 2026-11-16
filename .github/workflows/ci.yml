@@ -28,4 +28,4 @@ jobs:
           npm --version
 
       - name: Run test suite
-        run: node --test
+        run: node --test --test-reporter=spec test.js regression-test.js ui-test.js

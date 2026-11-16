@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="SpectralFlow: offline D2Q9 lattice Boltzmann wind tunnel and NACA 4-digit airfoil test bench with Schlieren vorticity, surface Cp integration, wake profiles, and force telemetry.">
-<title>SpectralFlow | D2Q9 Lattice Boltzmann Wind Tunnel &amp; NACA Section Bench</title>
+<meta name="description" content="SpectralFlow is a local wind tunnel laboratory with live flow fields, pressure integration, numerical health checks and resumable checkpoints.">
+<title>SpectralFlow | See the flow. Measure the physics.</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,27 +13,37 @@
 
 <header class="report-header">
   <div class="report-title-block">
-    <div class="report-id">Report No. SF-D2Q9-2412 &middot; Two-Dimensional Low-Speed Wind Tunnel Bench</div>
-    <h1>SpectralFlow: D2Q9 Lattice Boltzmann Wind Tunnel &amp; NACA 4-Digit Airfoil Analyzer</h1>
-    <p class="report-sub">Discrete 9-velocity Bhatnagar-Gross-Krook solver (220 &times; 92 lattice), Zou-He velocity inlet, halfway bounce-back solid links, and momentum-exchange force telemetry.</p>
+    <div class="report-id">SPECTRALFLOW / A WIND TUNNEL IN YOUR BROWSER</div>
+    <h1>See the flow. <span>Measure the physics.</span></h1>
+    <p class="report-sub">Explore lift, separation and acceleration in a live 2D wind tunnel. Inspect every lattice cell, follow the force balance, and save a state you can resume exactly.</p>
   </div>
   <div class="header-actions no-print">
-    <span class="status-readout" id="offlineBadge">Local kernel &middot; 0 network calls</span>
-    <button type="button" id="themeToggle" class="btn" aria-pressed="false">
-      <span id="themeLabel">Schlieren darkroom</span>
+    <span class="status-readout" id="offlineBadge">Runs entirely on your device</span>
+    <button type="button" id="themeToggle" class="btn" aria-pressed="true">
+      <span id="themeLabel">Light theme</span>
     </button>
-    <button type="button" id="printBtn" class="btn">Print technical report</button>
+    <button type="button" id="printBtn" class="btn">Print report</button>
   </div>
 </header>
 
-<main id="workbench">
+<main id="workbench" tabindex="-1">
+  <nav class="showcase" aria-label="One-click wind tunnel experiments">
+    <div class="showcase-heading"><strong>Start with a five-second experiment</strong><span>Real solver states. Live numerical checks.</span></div>
+    <button type="button" class="scenario" data-scenario="symmetric"><span>01 / CONTROL EXPERIMENT</span><strong>Test symmetry</strong><small>NACA 0012 at zero incidence.</small></button>
+    <button type="button" class="scenario" data-scenario="lift"><span>02 / PRESSURE TO FORCE</span><strong>Make lift visible</strong><small>Camber, incidence and a suction peak.</small></button>
+    <button type="button" class="scenario" data-scenario="wake"><span>03 / SEPARATED FLOW</span><strong>Follow the wake</strong><small>Opposite shear layers behind a cylinder.</small></button>
+    <button type="button" class="scenario" data-scenario="venturi"><span>04 / CHANNEL FLOW</span><strong>Accelerate a fluid</strong><small>Compare the inlet with the throat.</small></button>
+  </nav>
+  <section class="health-strip" aria-label="Numerical verification"><div id="solverStatus" role="status"></div><span id="scenarioStatus" role="status">Live wind tunnel</span></section>
+  <p id="errorStatus" class="error-status" role="alert" hidden></p>
   <section class="bench-controls" aria-label="Tunnel operating conditions">
     <div class="section-bar">
-      <h2>Table I. Wind Tunnel Operating Conditions &amp; Model Geometry</h2>
+      <h2>Set the experiment</h2>
       <div class="run-controls no-print">
         <button type="button" id="runToggle" class="btn btn-primary" aria-pressed="true">Pause tunnel</button>
         <button type="button" id="stepBtn" class="btn">Step +20</button>
         <button type="button" id="resetBtn" class="btn">Reset state</button>
+        <button type="button" id="importBtn" class="btn">Resume checkpoint</button><input type="file" id="snapshotInput" accept="application/json,.json" hidden aria-label="Choose a SpectralFlow checkpoint">
       </div>
     </div>
 
@@ -105,7 +115,7 @@
   <section class="report-figure flow-figure" aria-labelledby="flowHeading">
     <div class="figure-head">
       <div>
-        <h2 id="flowHeading">Figure 1. Wind-Tunnel Test Section &amp; Optical Schlieren / Field Viewport (220 &times; 92 Lattice)</h2>
+        <h2 id="flowHeading">Explore the test section</h2>
         <p class="figure-sub" id="fieldDescription">Screen-space vorticity d(u_y)/dx - d(u_x)/dy on a diverging scale. Solid boundary links use halfway bounce-back.</p>
       </div>
       <div class="figure-controls no-print">
@@ -128,11 +138,13 @@
         <span>Convective outlet x = 219</span>
       </div>
       <div class="canvas-wrap">
-        <canvas id="flowCanvas" width="880" height="368" role="img" aria-label="Live lattice Boltzmann wind tunnel test section around the selected obstacle. Data tables below provide the numerical readings.">Your browser does not support HTML5 canvas. Refer to the tabular data below.</canvas>
+        <canvas id="flowCanvas" width="880" height="368" role="img" tabindex="0" aria-describedby="probeHelp" aria-label="Live lattice Boltzmann wind tunnel test section around the selected obstacle. Data tables below provide the numerical readings.">Your browser does not support HTML5 canvas. Refer to the tabular data below.</canvas>
         <div id="fieldTooltip" class="field-tooltip" role="status" aria-live="off" hidden></div>
       </div>
     </div>
 
+    <div class="probe-bar"><output id="probeReadout">Focus the field to inspect a lattice cell.</output><button type="button" id="pinProbe" class="btn btn-small" aria-pressed="false">Pin probe</button></div>
+    <p id="probeHelp" class="probe-help">Hover or tap to inspect. Arrow keys move the probe; Shift moves ten cells. Enter pins, Escape releases. Numbers use dimensionless lattice units.</p>
     <div class="figure-foot">
       <div class="legend-bar" id="legendBar" aria-label="Field color scale"></div>
       <span id="fieldScaleLabel" class="scale-caption">curl range</span>
@@ -143,8 +155,8 @@
     <section class="report-figure" aria-labelledby="cpHeading">
       <div class="figure-head">
         <div>
-          <h2 id="cpHeading">Figure 2. Chordwise Surface Pressure Distribution C<sub>p</sub>(x/c)</h2>
-          <p class="figure-sub">Upper and lower surface pressure sampled one fluid link off the solid raster; aerodynamic convention plots &minus;C<sub>p</sub> upward.</p>
+          <h2 id="cpHeading">Pressure becomes force</h2>
+          <p class="figure-sub">Upper and lower pressure sampled along the true surface normals. The closed-contour integral excludes viscous shear; &minus;Cp points upward.</p>
         </div>
         <span class="figure-tag" id="cpIntegralLabel">C<sub>l,p</sub> = --</span>
       </div>
@@ -163,7 +175,7 @@
     <section class="report-figure" aria-labelledby="wakeHeading">
       <div class="figure-head">
         <div>
-          <h2 id="wakeHeading">Figure 3. Downstream Wake Traverse Profile u<sub>x</sub>(y)</h2>
+          <h2 id="wakeHeading">Measure the wake deficit</h2>
           <p class="figure-sub">Streamwise velocity rake across the tunnel height at 75% tunnel length showing momentum deficit behind the model.</p>
         </div>
         <span class="figure-tag">Station x = <span id="wakeXLabel">--</span></span>
@@ -186,7 +198,7 @@
     <section class="report-figure" aria-labelledby="forceHeading">
       <div class="figure-head">
         <div>
-          <h2 id="forceHeading">Figure 4. Aerodynamic Balance Force History C<sub>d</sub>(t), C<sub>l</sub>(t)</h2>
+          <h2 id="forceHeading">Watch the aerodynamic balance</h2>
           <p class="figure-sub">Instantaneous drag and lift coefficients from link momentum exchange F = &sum; 2 c<sub>i</sub> f<sub>i</sub><sup>*</sup> across reflected solid links.</p>
         </div>
         <span class="figure-tag" id="forceSamplesLabel">0 samples</span>
@@ -213,20 +225,21 @@
     <section class="report-figure" aria-labelledby="sectionHeading">
       <div class="figure-head">
         <div>
-          <h2 id="sectionHeading">Figure 5. Airfoil Ordinates &amp; Section Lift-Drag Polar Reference</h2>
-          <p class="figure-sub" id="sectionSub">Exact NACA 4-digit thickness and mean camber polynomials at cosine-clustered stations, with operating point marked on the section polar.</p>
+          <h2 id="sectionHeading">Geometry and measured force trajectory</h2>
+          <p class="figure-sub" id="sectionSub">Exact NACA geometry beside the measured force trajectory at the current condition. Every point comes from the solver history.</p>
         </div>
         <div class="export-row no-print">
           <button type="button" id="csvBtn" class="btn btn-small">Wake CSV</button>
           <button type="button" id="forceCsvBtn" class="btn btn-small">Force CSV</button>
-          <button type="button" id="jsonBtn" class="btn btn-small">Snapshot JSON</button>
+          <button type="button" id="fieldCsvBtn" class="btn btn-small">Field CSV</button>
+          <button type="button" id="jsonBtn" class="btn btn-small">Checkpoint JSON</button>
         </div>
       </div>
       <div class="section-layout">
         <div class="section-figure">
           <svg id="sectionChart" viewBox="0 0 540 220" preserveAspectRatio="xMidYMid meet" role="img" aria-labelledby="sectionChartTitle sectionChartDesc">
-            <title id="sectionChartTitle">Airfoil section profile and polar operating point</title>
-            <desc id="sectionChartDesc">Airfoil upper and lower ordinates with mean camber line and live operating point.</desc>
+            <title id="sectionChartTitle">Airfoil profile and measured force trajectory</title>
+            <desc id="sectionChartDesc">Airfoil ordinates and measured drag and lift pairs from the current condition.</desc>
           </svg>
         </div>
         <div class="spec-list" id="specList" aria-label="Model specification table"></div>
@@ -242,7 +255,7 @@
 
   <section class="report-figure math-panel" aria-labelledby="mathHeading">
     <div class="figure-head">
-      <h2 id="mathHeading">Appendix A. Governing Lattice Boltzmann &amp; Aerodynamic Formulation</h2>
+      <h2 id="mathHeading">The mathematics behind the experiment</h2>
     </div>
     <div class="math-grid">
       <div class="math-col">
@@ -265,12 +278,13 @@
 </main>
 
 <footer class="site-footer">
-  <p>SpectralFlow v1.0.0 &middot; UMD Solver Kernel (<code>cfd.js</code>) &middot; 67/67 Node.js Verification Assertions &middot; MIT License</p>
-  <p>All calculations use dimensionless lattice units on a 220 &times; 92 cartesian grid for interactive aerodynamic analysis.</p>
+  <p>SpectralFlow &middot; Local wind tunnel laboratory &middot; MIT License</p>
+  <p>220 &times; 92 lattice &middot; 2D low-Mach BGK model &middot; Airfoil forces use chord times unit span. Coarse-grid estimates need refinement for design decisions.</p>
 </footer>
 
 <div id="liveStatus" class="sr-only" role="status" aria-live="polite"></div>
 
+<noscript><p>Enable JavaScript to use the local wind tunnel.</p></noscript>
 <script src="cfd.js"></script>
 <script src="app.js"></script>
 </body>

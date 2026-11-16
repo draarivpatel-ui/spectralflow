@@ -8,7 +8,7 @@ abstract: >-
 type: software
 license: MIT
 repository-code: "https://github.com/draarivpatel-ui/spectralflow"
-url: "https://draarivpatel-ui.github.io/spectralflow/"
+url: "https://aariv.me/spectralflow/"
 keywords:
   - lattice-boltzmann
   - cfd
@@ -25,10 +25,10 @@ authors:
 preferred-citation:
   type: software
   title: "SpectralFlow"
-  version: "1.0.0"
-  date-released: "2026-11-08"
+  version: "2.0.0"
+  date-released: "2026-11-15"
   license: MIT
-  url: "https://draarivpatel-ui.github.io/spectralflow/"
+  url: "https://aariv.me/spectralflow/"
   authors:
     - family-names: "Patel"
       given-names: "Aariv"

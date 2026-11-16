@@ -48,7 +48,9 @@
     sectionChart: $('sectionChart'), sectionSub: $('sectionSub'),
     sectionTable: $('sectionTable'), specList: $('specList'),
     csvBtn: $('csvBtn'), forceCsvBtn: $('forceCsvBtn'), jsonBtn: $('jsonBtn'),
-    liveStatus: $('liveStatus')
+    liveStatus: $('liveStatus'), solverStatus: $('solverStatus'), scenarioStatus: $('scenarioStatus'),
+    errorStatus: $('errorStatus'), probeReadout: $('probeReadout'), pinProbe: $('pinProbe'),
+    importBtn: $('importBtn'), snapshotInput: $('snapshotInput'), fieldCsvBtn: $('fieldCsvBtn')
   };
 
   var app = {
@@ -70,6 +72,11 @@
     forcePoints: [],
     polarPoints: []
   };
+  app.raf = null;
+  app.warmRemaining = 0;
+  app.scenario = '';
+  app.probe = { i: Math.round(NX * 0.6), j: Math.floor(NY / 2) };
+  app.probePinned = false;
 
   /* ---------------- Color helpers ---------------- */
 
@@ -160,27 +167,8 @@
   }
 
   function computeSchlierenField() {
-    var st = app.state;
-    var rho = st.rho;
-    var mask = st.mask;
-    var out = app.schlieren;
-    for (var j = 0; j < NY; j++) {
-      var jm = Math.max(0, j - 1);
-      var jp = Math.min(NY - 1, j + 1);
-      for (var i = 0; i < NX; i++) {
-        var cell = j * NX + i;
-        if (mask[cell] === 1) {
-          out[cell] = 0;
-          continue;
-        }
-        var im = Math.max(0, i - 1);
-        var ip = Math.min(NX - 1, i + 1);
-        var drx = (rho[j * NX + ip] - rho[j * NX + im]) * 0.5;
-        var dry = (rho[jp * NX + i] - rho[jm * NX + i]) * 0.5;
-        out[cell] = Math.sqrt(drx * drx + dry * dry);
-      }
-    }
-    return out;
+    app.schlieren = app.diag.fields.schlieren;
+    return app.schlieren;
   }
 
   /* ---------------- Simulation setup ---------------- */
@@ -189,7 +177,8 @@
     var kind = ui.obstacleKind.value;
     if (kind === 'custom') {
       var code = ui.customCode.value.trim();
-      return /^[0-9]{4}$/.test(code) ? code : '0012';
+      SF.parseNaca4(code);
+      return code;
     }
     if (kind.indexOf('naca') === 0) return kind.slice(4);
     return '2412';
@@ -209,7 +198,10 @@
   }
 
   function rebuild(resetParticles) {
-    var mask = buildMask();
+    var mask;
+    try { mask = buildMask(); } catch (error) { setRunning(false); [ui.csvBtn, ui.forceCsvBtn, ui.fieldCsvBtn, ui.jsonBtn].forEach(function (node) { node.disabled = true; }); reportError(error.message); return false; }
+    ui.errorStatus.hidden = true;
+    [ui.csvBtn, ui.forceCsvBtn, ui.fieldCsvBtn, ui.jsonBtn].forEach(function (node) { node.disabled = false; });
     if (!app.state) {
       app.state = SF.createWindTunnel(NX, NY, currentSpeed(), currentViscosity(), { mask: mask });
       app.off = document.createElement('canvas');
@@ -226,10 +218,30 @@
     app.diag = SF.computeDiagnostics(app.state);
     computeSchlierenField();
     app.frame = 0;
+    app.warmRemaining = 0;
+    app.probePinned = false;
+    ui.pinProbe.setAttribute('aria-pressed', 'false');
     updateControlLabels();
-    renderSection();
     renderAll(true);
     announce('Simulation reset for ' + mask.shape + '.');
+    return true;
+  }
+
+  function reportError(message) { ui.errorStatus.textContent = message; ui.errorStatus.hidden = false; announce(message); }
+
+  function loadScenario(id) {
+    var scenario = SF.getScenario(id);
+    ui.obstacleKind.value = scenario.obstacle;
+    ui.angleRange.value = scenario.angleDeg;
+    ui.speedRange.value = scenario.u0;
+    ui.viscosityRange.value = scenario.viscosity;
+    ui.chordRange.value = scenario.chordPx;
+    app.scenario = id;
+    if (!rebuild(true)) return;
+    app.warmRemaining = Math.max(0, scenario.warmupSteps - app.state.time);
+    ui.scenarioStatus.textContent = scenario.label + ': preparing live flow';
+    setField(scenario.field);
+    setRunning(true);
   }
 
   function updateControlLabels() {
@@ -326,7 +338,7 @@
 
   function fieldDescriptions() {
     return {
-      curl: 'Screen-space vorticity d(u_y)/dx - d(u_x)/dy. Blue and red poles mark opposite shear rotation across the wake.',
+      curl: 'Physical vorticity with y upward. Blue and orange mark opposite rotation in the shear layers and wake.',
       schlieren: 'Numerical Schlieren knife-edge density gradient |grad rho|, highlighting shear layers, stagnation compression, and vortex cores.',
       speed: 'Velocity magnitude |u| on a sequential scale from stagnation (0) to peak accelerated flow over the suction surface.',
       cp: 'Pressure coefficient Cp = (rho - rho0) / (3 q). Suction (negative Cp) and stagnation compression share one diverging scale.',
@@ -337,7 +349,7 @@
   function currentFieldLimit() {
     var d = app.diag;
     var f = app.field;
-    if (f === 'curl') return scaleLimit(d.fields.curl, app.state.mask, 0.004);
+    if (f === 'curl') return scaleLimit(d.fields.vorticity, app.state.mask, 0.004);
     if (f === 'schlieren') return scaleLimit(app.schlieren, app.state.mask, 0.0015);
     if (f === 'cp') return scaleLimit(d.fields.cp, app.state.mask, 0.06);
     return Math.max(app.state.u0 * 1.35, d.maxSpeed);
@@ -358,7 +370,7 @@
     var arr;
     var limit = currentFieldLimit();
     if (f === 'curl') {
-      arr = d.fields.curl;
+      arr = d.fields.vorticity;
     } else if (f === 'schlieren') {
       arr = app.schlieren;
     } else if (f === 'speed' || f === 'tracers') {
@@ -460,6 +472,12 @@
     ctx.lineTo(wakeX, size[1]);
     ctx.stroke();
     ctx.setLineDash([]);
+    var probeX = (app.probe.i + 0.5) * sx, probeY = (app.probe.j + 0.5) * sy;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = rgbToCss(app.colors['--text-primary']);
+    ctx.lineWidth = Math.max(1, sx * 0.3);
+    ctx.beginPath(); ctx.moveTo(probeX - 8, probeY); ctx.lineTo(probeX + 8, probeY);
+    ctx.moveTo(probeX, probeY - 8); ctx.lineTo(probeX, probeY + 8); ctx.stroke();
     ctx.restore();
   }
 
@@ -521,7 +539,9 @@
   }
 
   function clearSvg(svg) {
-    while (svg.childNodes.length > 2) svg.removeChild(svg.lastChild);
+    Array.from(svg.childNodes).forEach(function (node) {
+      if (node.nodeType !== 1 || (node.localName !== 'title' && node.localName !== 'desc')) svg.removeChild(node);
+    });
   }
 
   function chartFrame(svg, xTicks, yTicks, xTitle, yTitle) {
@@ -600,40 +620,7 @@
   /* ---------------- Chordwise Surface Cp(x/c) Chart ---------------- */
 
   function computeSurfaceCp() {
-    var st = app.state;
-    var mask = st.mask;
-    var cp = app.diag.fields.cp;
-    var b = mask.bounds || SF.maskBounds(mask, NX, NY);
-    var span = Math.max(1, b.xMax - b.xMin);
-    var rows = [];
-    for (var i = b.xMin; i <= b.xMax; i++) {
-      var topJ = -1;
-      var botJ = -1;
-      for (var j = 0; j < NY; j++) {
-        if (mask[j * NX + i] === 1) {
-          if (topJ < 0) topJ = j;
-          botJ = j;
-        }
-      }
-      if (topJ < 0) continue;
-      var ju = Math.max(1, topJ - 1);
-      var jl = Math.min(NY - 2, botJ + 1);
-      var cpu = cp[ju * NX + i];
-      var cpl = cp[jl * NX + i];
-      rows.push({
-        xc: (i - b.xMin) / span,
-        cpUpper: cpu,
-        cpLower: cpl
-      });
-    }
-    var clp = 0;
-    for (var k = 1; k < rows.length; k++) {
-      var dx = rows[k].xc - rows[k - 1].xc;
-      var jump0 = rows[k - 1].cpLower - rows[k - 1].cpUpper;
-      var jump1 = rows[k].cpLower - rows[k].cpUpper;
-      clp += 0.5 * (jump0 + jump1) * dx;
-    }
-    return { rows: rows, clPressure: clp };
+    return SF.surfacePressureProfile(app.state, app.diag.fields);
   }
 
   function renderCpChart() {
@@ -926,7 +913,7 @@
 
   /* ---------------- Section chart ---------------- */
 
-  function renderSection() {
+  function renderSection(withTables) {
     var svg = ui.sectionChart;
     var mask = app.state.mask;
     clearSvg(svg);
@@ -953,14 +940,16 @@
     /* Right sub-panel: Cl vs Cd polar locus */
     g.appendChild(svgEl('line', { x1: polL, x2: right, y1: bottom, y2: bottom, class: 'axis-line' }));
     g.appendChild(svgEl('line', { x1: polL, x2: polL, y1: top, y2: bottom, class: 'axis-line' }));
-    var polZeroY = (top + bottom) / 2;
-    g.appendChild(svgEl('line', { x1: polL, x2: right, y1: polZeroY, y2: polZeroY, class: 'ref-line' }));
-    g.appendChild(svgEl('text', { x: polL - 5, y: top + 6, 'text-anchor': 'end', class: 'tick-text' }, '+1.5'));
-    g.appendChild(svgEl('text', { x: polL - 5, y: polZeroY + 3, 'text-anchor': 'end', class: 'tick-text' }, '0'));
-    g.appendChild(svgEl('text', { x: polL - 5, y: bottom, 'text-anchor': 'end', class: 'tick-text' }, '-1.5'));
-    g.appendChild(svgEl('text', {
-      x: (polL + right) / 2, y: H - 5, 'text-anchor': 'middle', class: 'axis-title'
-    }, 'Polar C_l vs C_d'));
+    var history = app.state.forceHistory.slice(-160);
+    var cds = history.map(function (entry) { return entry.cd; });
+    var cls = history.map(function (entry) { return entry.cl; });
+    var cdScale = niceTicks(Math.min.apply(null, cds.concat([0])), Math.max.apply(null, cds.concat([0.1])), 3);
+    var clScale = niceTicks(Math.min.apply(null, cls.concat([-0.1])), Math.max.apply(null, cls.concat([0.1])), 3);
+    var pxPol = function (cd) { return polL + (cd - cdScale.lo) / (cdScale.hi - cdScale.lo) * (right - polL); };
+    var pyPol = function (cl) { return bottom - (cl - clScale.lo) / (clScale.hi - clScale.lo) * (bottom - top); };
+    cdScale.ticks.forEach(function (value) { g.appendChild(svgEl('text', { x: pxPol(value), y: bottom + 13, 'text-anchor': 'middle', class: 'tick-text' }, value.toFixed(1))); });
+    clScale.ticks.forEach(function (value) { g.appendChild(svgEl('text', { x: polL - 5, y: pyPol(value) + 3, 'text-anchor': 'end', class: 'tick-text' }, value.toFixed(1))); });
+    g.appendChild(svgEl('text', { x: (polL + right) / 2, y: H - 5, 'text-anchor': 'middle', class: 'axis-title' }, 'Measured Cd / Cl trajectory'));
     svg.appendChild(g);
 
     var isAirfoil = mask.kind === 'naca4';
@@ -988,7 +977,7 @@
       }));
       svg.appendChild(svgEl('text', { x: xOf(0.25) + 5, y: yOf(0) + 13, class: 'tick-text' }, '0.25c'));
       ui.sectionSub.textContent = 'Exact NACA ' + c.code + ' thickness and camber polynomials offset along the local normal across ' + c.samples + ' cosine-clustered stations.';
-      renderSectionTable(c);
+      if (withTables !== false) renderSectionTable(c);
     } else {
       var scale = Math.min((midR - left) / NX, (bottom - top) / NY) * 0.92;
       var ox = left + ((midR - left) - NX * scale) / 2;
@@ -1006,50 +995,31 @@
       }
       var fill = app.colors['--seq-250'];
       var fillCss = rgbToCss(fill);
-      for (i = 0; i < path.length; i++) {
-        svg.appendChild(svgEl('rect', {
-          x: path[i][0].toFixed(2), y: path[i][1].toFixed(2),
-          width: Math.max(0.7, scale).toFixed(2), height: Math.max(0.7, path[i][2] - path[i][1]).toFixed(2),
-          fill: fillCss, opacity: '0.55'
-        }));
+      for (i = 0; i < NX; i++) {
+        var start = -1;
+        for (j = 0; j <= NY; j++) {
+          var solid = j < NY && mask[j * NX + i] === 1;
+          if (solid && start < 0) start = j;
+          if (!solid && start >= 0) {
+            svg.appendChild(svgEl('rect', { x: ox + i * scale, y: oy + start * scale, width: Math.max(0.7, scale), height: (j - start) * scale, fill: fillCss, opacity: '0.55' }));
+            start = -1;
+          }
+        }
       }
       svg.appendChild(svgEl('text', {
         x: (left + midR) / 2, y: (top + bottom) / 2,
         'text-anchor': 'middle', class: 'axis-title'
       }, mask.shape + ' (' + mask.solidCount + ' nodes)'));
       ui.sectionSub.textContent = 'Solid cell raster for ' + mask.shape + '. Select a NACA airfoil to inspect continuous section ordinates.';
-      renderSectionTable(null);
+      if (withTables !== false) renderSectionTable(null);
     }
 
-    /* Plot polar parabola + current live (Cd, Cl) operating point */
-    var pxPol = function (cd) {
-      var cClamped = Math.max(0, Math.min(2.5, cd));
-      return polL + (cClamped / 2.5) * (right - polL);
-    };
-    var pyPol = function (cl) {
-      var lClamped = Math.max(-1.6, Math.min(1.6, cl));
-      return polZeroY - (lClamped / 1.6) * ((bottom - top) / 2);
-    };
-    var camBias = isAirfoil ? (mask.maxCamber || 0) * 8.5 : 0;
-    var locus = [];
-    for (var a = -14; a <= 14; a += 2) {
-      var clEst = camBias + a * 0.088;
-      var cdEst = 0.42 + 0.0042 * a * a + Math.abs(camBias) * 0.12;
-      locus.push([pxPol(cdEst), pyPol(clEst)]);
-    }
-    svg.appendChild(svgEl('path', {
-      d: pathFrom(locus), fill: 'none', stroke: cssVar('--series-3'), 'stroke-width': 1.6, 'stroke-dasharray': '3 2'
-    }));
-    if (app.diag && Number.isFinite(app.diag.meanCd) && Number.isFinite(app.diag.meanCl)) {
-      var opX = pxPol(Math.abs(app.diag.meanCd));
-      var opY = pyPol(app.diag.meanCl);
-      svg.appendChild(svgEl('circle', {
-        cx: opX, cy: opY, r: 4.5, fill: cssVar('--series-2'), class: 'end-dot'
-      }));
-      svg.appendChild(svgEl('text', {
-        x: Math.min(right - 4, opX + 7), y: Math.max(top + 10, opY - 5),
-        class: 'end-label'
-      }, 'Cl=' + app.diag.meanCl.toFixed(2)));
+    app.polarPoints = history.map(function (entry) { return [pxPol(entry.cd), pyPol(entry.cl)]; });
+    if (app.polarPoints.length) {
+      svg.appendChild(svgEl('path', { d: pathFrom(app.polarPoints), fill: 'none', stroke: cssVar('--series-3'), 'stroke-width': 1.8 }));
+      var last = app.polarPoints[app.polarPoints.length - 1];
+      svg.appendChild(svgEl('circle', { cx: last[0], cy: last[1], r: 4, fill: cssVar('--series-2'), class: 'end-dot' }));
+      svg.appendChild(svgEl('text', { x: polL + 4, y: top + 10, class: 'tick-text' }, history.length + ' measured pairs'));
     }
     renderSpecs(mask);
   }
@@ -1061,7 +1031,8 @@
       ['NACA designation', mask.code || 'non-airfoil'],
       ['Incidence alpha', (mask.angleDeg || 0).toFixed(1) + ' deg'],
       ['Solid lattice nodes', String(mask.solidCount)],
-      ['Projected frontal L_ref', mask.projectedHeight.toFixed(2) + ' px'],
+      ['Force reference length', app.state.referenceHeight.toFixed(2) + ' px'],
+      ['Coefficient convention', mask.kind === 'naca4' ? 'chord x unit span' : 'projected height x unit span'],
       ['Reynolds number Re', d.reynolds.toFixed(1)],
       ['BGK tau / omega', app.state.tau.toFixed(4) + ' / ' + app.state.omega.toFixed(3)],
       ['Peak speed |u|_max', d.maxSpeed.toFixed(4)],
@@ -1192,19 +1163,27 @@
     renderWakeChart();
     renderForceChart();
     renderStats();
+    renderSection(!!withTables);
+    renderProbeReadout();
+    renderHealth();
     ui.fieldDescription.textContent = fieldDescriptions()[app.field];
     if (withTables) renderTables();
   }
 
   function frame() {
+    app.raf = null;
     if (!app.running || !app.diag) return;
     var tables = false;
     try {
-      SF.stepLBM(app.state, STEPS_PER_FRAME);
+      var steps = app.warmRemaining > 0 ? Math.min(20, app.warmRemaining) : STEPS_PER_FRAME;
+      SF.stepLBM(app.state, steps);
+      app.warmRemaining = Math.max(0, app.warmRemaining - steps);
       app.diag = SF.computeDiagnostics(app.state);
       app.frame++;
       if (app.field === 'tracers') advanceTracers();
       if (app.frame % CHART_EVERY === 0) renderAll(false);
+      else { computeSchlierenField(); renderField(); renderProbeReadout(); }
+      if (app.scenario) ui.scenarioStatus.textContent = SF.getScenario(app.scenario).label + (app.warmRemaining ? ': ' + app.warmRemaining + ' preparation steps left' : ': live experiment');
       if (app.frame % TABLE_EVERY === 0) { renderTables(); tables = true; }
       if (app.frame % (CHART_EVERY * 10) === 0) {
         announce('Step ' + app.state.time + '. Mean drag ' + fmtSigned(app.diag.meanCd) +
@@ -1214,9 +1193,9 @@
       app.running = false;
       ui.runToggle.textContent = 'Resume tunnel';
       ui.runToggle.setAttribute('aria-pressed', 'false');
-      announce('Simulation stopped: ' + (err && err.message ? err.message : 'solver error'));
+      reportError('Simulation stopped: ' + (err && err.message ? err.message : 'solver error'));
     }
-    if (app.running) requestAnimationFrame(frame);
+    if (app.running) scheduleFrame();
     else if (!tables) renderTables();
   }
 
@@ -1225,7 +1204,31 @@
     ui.runToggle.textContent = on ? 'Pause tunnel' : 'Resume tunnel';
     ui.runToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
     announce(on ? 'Simulation running.' : 'Simulation paused.');
-    if (on) requestAnimationFrame(frame);
+    if (!on && app.raf != null) { cancelAnimationFrame(app.raf); app.raf = null; }
+    if (on) scheduleFrame();
+  }
+
+  function scheduleFrame() {
+    if (app.running && app.raf == null && !document.hidden) app.raf = requestAnimationFrame(frame);
+  }
+
+  function renderHealth() {
+    var d = app.diag;
+    var passes = d.nonFiniteNodes === 0 && d.inletResidual < 1e-8 && !d.unstable;
+    ui.solverStatus.textContent = (passes ? 'SOLVER CHECKS PASS' : 'SOLVER NEEDS ATTENTION') + ' | ' + app.state.cellCount.toLocaleString('en-US') + ' finite cells | inlet residual ' + d.inletResidual.toExponential(1) + ' | ' + d.sanitizedNodes + ' repaired nodes | peak Ma ' + d.maxMach.toFixed(3);
+    ui.solverStatus.className = passes ? 'is-pass' : 'is-warning';
+  }
+
+  function renderProbeReadout() {
+    var probe = SF.sampleField(app.state, app.probe.i, app.probe.j, app.diag.fields);
+    ui.probeReadout.textContent = 'i=' + probe.i + ', j=' + probe.j + (probe.solid ? ' | solid, no-slip' : ' | ux=' + probe.ux.toFixed(4) + ' | uy=' + probe.uy.toFixed(4) + ' | Cp=' + probe.cp.toFixed(3) + ' | vorticity=' + probe.vorticity.toFixed(4));
+  }
+
+  function toggleProbePin() {
+    app.probePinned = !app.probePinned;
+    ui.pinProbe.setAttribute('aria-pressed', String(app.probePinned));
+    ui.pinProbe.textContent = app.probePinned ? 'Release probe' : 'Pin probe';
+    announce(app.probePinned ? 'Probe pinned. ' + ui.probeReadout.textContent : 'Probe released.');
   }
 
   /* ---------------- Downloads ---------------- */
@@ -1256,6 +1259,8 @@
     if (x < 0 || y < 0 || x >= NX || y >= NY) { ui.fieldTooltip.hidden = true; return; }
     var i = Math.floor(x);
     var j = Math.floor(y);
+    app.probe = { i: i, j: j };
+    renderProbeReadout();
     var cell = j * NX + i;
     var f = app.diag.fields;
     var st = app.state;
@@ -1272,7 +1277,7 @@
       : [
           ['u_x', st.ux[cell].toFixed(4)], ['u_y', st.uy[cell].toFixed(4)],
           ['|u|', f.speed[cell].toFixed(4)], ['rho', st.rho[cell].toFixed(4)],
-          ['Cp', f.cp[cell].toFixed(3)], ['curl', f.curl[cell].toFixed(4)]
+          ['Cp', f.cp[cell].toFixed(3)], ['vorticity', f.vorticity[cell].toFixed(4)]
         ];
     rows.forEach(function (r) {
       var row = document.createElement('div');
@@ -1292,7 +1297,7 @@
   function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     var dark = theme === 'dark';
-    ui.themeLabel.textContent = dark ? 'NACA paper report' : 'Schlieren darkroom';
+    ui.themeLabel.textContent = dark ? 'Light theme' : 'Dark theme';
     ui.themeToggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
     try { localStorage.setItem('spectralflow-theme', theme); } catch (e) { /* storage optional */ }
   }
@@ -1301,16 +1306,18 @@
     var saved = null;
     try { saved = localStorage.getItem('spectralflow-theme'); } catch (e) { /* storage optional */ }
     if (saved === 'light' || saved === 'dark') { applyTheme(saved); return; }
-    applyTheme('light');
+    applyTheme('dark');
   }
 
   /* ---------------- Event wiring ---------------- */
 
   function setField(field) {
+    if (['curl', 'schlieren', 'cp', 'speed', 'tracers'].indexOf(field) < 0) return;
     app.field = field;
     var segs = document.querySelectorAll('.seg');
     for (var k = 0; k < segs.length; k++) {
       segs[k].setAttribute('aria-checked', segs[k].getAttribute('data-field') === field ? 'true' : 'false');
+      segs[k].setAttribute('tabindex', segs[k].getAttribute('data-field') === field ? '0' : '-1');
     }
     app.lutKey = '';
     renderAll(false);
@@ -1318,28 +1325,30 @@
   }
 
   function bindEvents() {
+    document.querySelector('.showcase').addEventListener('click', function (event) {
+      var node = event.target.closest ? event.target.closest('[data-scenario]') : null;
+      if (node) loadScenario(node.dataset.scenario);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && app.raf != null) { cancelAnimationFrame(app.raf); app.raf = null; }
+      else scheduleFrame();
+    });
     ui.themeToggle.addEventListener('click', function () {
       applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
       refreshColors();
       renderAll(false);
-      renderSection();
-    });
+      });
     ui.printBtn.addEventListener('click', function () {
       renderAll(true);
-      renderSection();
-      setTimeout(function () { globalThis.print(); }, 60);
+        setTimeout(function () { globalThis.print(); }, 60);
     });
 
     ui.obstacleKind.addEventListener('change', function () {
+      app.scenario = ''; ui.scenarioStatus.textContent = 'Custom experiment';
       updateControlLabels();
       rebuild(true);
     });
     ui.customCode.addEventListener('change', function () {
-      var v = ui.customCode.value.trim();
-      if (!/^[0-9]{4}$/.test(v)) {
-        ui.customCode.value = '0012';
-        announce('Invalid NACA code. Use four digits. Reset to 0012.');
-      }
       if (ui.obstacleKind.value === 'custom') rebuild(true);
     });
     ui.customCode.addEventListener('input', function () {
@@ -1349,7 +1358,7 @@
     var ranges = [ui.angleRange, ui.speedRange, ui.viscosityRange, ui.chordRange];
     ranges.forEach(function (r) {
       r.addEventListener('input', updateControlLabels);
-      r.addEventListener('change', function () { rebuild(r === ui.speedRange || r === ui.viscosityRange); });
+      r.addEventListener('change', function () { app.scenario = ''; ui.scenarioStatus.textContent = 'Custom experiment'; rebuild(true); });
     });
 
     ui.runToggle.addEventListener('click', function () { setRunning(!app.running); });
@@ -1362,7 +1371,7 @@
         renderAll(true);
         announce('Advanced 20 steps to step ' + app.state.time + '.');
       } catch (err) {
-        announce('Step failed: ' + (err && err.message ? err.message : 'solver error'));
+        reportError('Step failed: ' + (err && err.message ? err.message : 'solver error'));
       }
     });
     ui.resetBtn.addEventListener('click', function () { rebuild(true); });
@@ -1393,7 +1402,23 @@
       announce('Hatching ' + (app.texture ? 'enabled' : 'disabled') + '.');
     });
 
-    ui.canvas.addEventListener('pointermove', showFieldTooltip);
+    ui.canvas.addEventListener('pointermove', function (event) { if (!app.probePinned) showFieldTooltip(event); });
+    ui.canvas.addEventListener('pointerdown', function (event) { if (!app.probePinned) showFieldTooltip(event); toggleProbePin(); });
+    ui.canvas.addEventListener('focus', renderProbeReadout);
+    ui.canvas.addEventListener('keydown', function (event) {
+      var amount = event.shiftKey ? 10 : 1;
+      if (event.key === 'ArrowLeft') app.probe.i = Math.max(0, app.probe.i - amount);
+      else if (event.key === 'ArrowRight') app.probe.i = Math.min(NX - 1, app.probe.i + amount);
+      else if (event.key === 'ArrowUp') app.probe.j = Math.max(0, app.probe.j - amount);
+      else if (event.key === 'ArrowDown') app.probe.j = Math.min(NY - 1, app.probe.j + amount);
+      else if (event.key === 'Home') app.probe.i = 0;
+      else if (event.key === 'End') app.probe.i = NX - 1;
+      else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleProbePin(); return; }
+      else if (event.key === 'Escape') { if (app.probePinned) toggleProbePin(); ui.fieldTooltip.hidden = true; return; }
+      else return;
+      event.preventDefault(); renderProbeReadout(); renderField(); announce(ui.probeReadout.textContent);
+    });
+    ui.pinProbe.addEventListener('click', toggleProbePin);
     ui.canvas.addEventListener('pointerleave', function () { ui.fieldTooltip.hidden = true; });
     ui.wakeChart.addEventListener('pointermove', function (e) { showWakeTooltip(e.clientX, e.clientY); });
     ui.wakeChart.addEventListener('pointerleave', function () { hideTooltip(ui.wakeTooltip, ui.wakeChart); });
@@ -1417,6 +1442,8 @@
 
     ui.wakeChart.setAttribute('tabindex', '0');
     ui.forceChart.setAttribute('tabindex', '0');
+    ui.wakeChart.addEventListener('focusout', function () { hideTooltip(ui.wakeTooltip, ui.wakeChart); });
+    ui.forceChart.addEventListener('focusout', function () { hideTooltip(ui.forceTooltip, ui.forceChart); });
 
     ui.csvBtn.addEventListener('click', function () {
       download('spectralflow-wake-' + fileTag() + '.csv',
@@ -1429,9 +1456,39 @@
       announce('Force history CSV downloaded.');
     });
     ui.jsonBtn.addEventListener('click', function () {
-      download('spectralflow-snapshot-' + fileTag() + '.json',
-        SF.exportSnapshotJSON(app.state), 'application/json');
-      announce('Snapshot JSON downloaded.');
+      try {
+        var result = SF.verifySnapshotRoundTrip(app.state);
+        if (!result.passes) throw new Error('Checkpoint verification failed');
+        download('spectralflow-checkpoint-' + fileTag() + '.json', SF.exportSnapshotJSON(app.state, { includePopulations: true }), 'application/json');
+        ui.scenarioStatus.textContent = 'Checkpoint round trip PASS: ' + result.populations.toLocaleString('en-US') + ' populations restored exactly';
+        announce(ui.scenarioStatus.textContent);
+      } catch (error) { reportError(error.message); }
+    });
+    ui.fieldCsvBtn.addEventListener('click', function () { download('spectralflow-field-' + fileTag() + '.csv', SF.exportFieldCSV(app.state), 'text/csv'); announce('Full lattice field CSV downloaded.'); });
+    ui.importBtn.addEventListener('click', function () { ui.snapshotInput.click(); });
+    ui.snapshotInput.addEventListener('change', async function () {
+      var file = ui.snapshotInput.files && ui.snapshotInput.files[0];
+      if (!file) return;
+      try {
+        if (file.size > 32 * 1024 * 1024) throw new Error('Checkpoint exceeds the 32 MB import limit');
+        var restored = SF.importSnapshotJSON(await file.text());
+        if (restored.nx !== NX || restored.ny !== NY) throw new Error('This viewport requires a 220 by 92 checkpoint');
+        if (['naca4', 'cylinder', 'bluff', 'venturi'].indexOf(restored.mask.kind) < 0) throw new Error('This viewport requires a supported model family');
+        setRunning(false); app.state = restored; app.scenario = ''; app.warmRemaining = 0;
+        var code = restored.mask.code;
+        if (restored.mask.kind === 'naca4') {
+          if (['0012', '2412', '4415'].indexOf(code) >= 0) ui.obstacleKind.value = 'naca' + code;
+          else { ui.obstacleKind.value = 'custom'; ui.customCode.value = code; }
+          ui.angleRange.value = restored.mask.angleDeg; ui.chordRange.value = restored.mask.chordPx;
+        } else ui.obstacleKind.value = restored.mask.kind;
+        ui.speedRange.min = Math.min(Number(ui.speedRange.min), restored.u0); ui.speedRange.max = Math.max(Number(ui.speedRange.max), restored.u0);
+        ui.viscosityRange.min = Math.min(Number(ui.viscosityRange.min), restored.viscosity); ui.viscosityRange.max = Math.max(Number(ui.viscosityRange.max), restored.viscosity);
+        ui.speedRange.value = restored.u0; ui.viscosityRange.value = restored.viscosity;
+        updateControlLabels(); seedTracers(); app.diag = SF.computeDiagnostics(restored); renderAll(true);
+        ui.errorStatus.hidden = true; ui.scenarioStatus.textContent = 'Checkpoint restored at step ' + restored.time + '. Resume when ready.';
+        announce(ui.scenarioStatus.textContent);
+      } catch (error) { reportError('Import failed: ' + error.message); }
+      ui.snapshotInput.value = '';
     });
 
     globalThis.addEventListener('resize', function () {
