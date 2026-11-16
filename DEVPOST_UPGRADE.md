@@ -44,13 +44,13 @@ Verified on Node v24.16.0 with:
 node --test --test-reporter=spec test.js regression-test.js ui-test.js
 ```
 
-**112 passed, 0 failed, 0 skipped.**
+**116 passed, 0 failed, 0 skipped.**
 
 | Verification | Observed result |
 | --- | --- |
 | Base physics and export checks | 67 tests |
-| Numerical and checkpoint regressions | 26 tests |
-| DOM/controller checks | 19 tests |
+| Numerical and checkpoint regressions | 29 tests |
+| DOM/controller checks | 20 tests |
 | Browser lattice sites | 20,240 |
 | Browser checkpoint populations | 182,160 |
 | Full-field CSV data rows | 20,240 |

@@ -61,7 +61,7 @@ Node.js 22 or newer:
 node --test --test-reporter=spec test.js regression-test.js ui-test.js
 ```
 
-**112 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 26 numerical/export regressions and 19 DOM/controller checks.
+**116 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 29 numerical/export regressions and 20 DOM/controller checks.
 
 Coverage includes lattice isotropy, equilibrium mass and momentum, NACA symmetry, positive/negative incidence trends, solid and inlet boundary behavior, Venturi acceleration, bounded force history, analytic gradients, coherent repair, finite CSV schemas, strict checkpoint validation, exact resumed evolution and every showcase scenario.
 

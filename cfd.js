@@ -535,7 +535,7 @@
   }
 
   /* Macroscopic moments: rho = sum f_i, rho u = sum c_i f_i. */
-  function refreshMacroscopic(state, sanitize) {
+  function refreshMacroscopic(state, sanitize, accumulateStep) {
     var f = state.f, rhoArr = state.rho, uxArr = state.ux, uyArr = state.uy;
     var corrected = 0;
     for (var cell = 0; cell < state.cellCount; cell++) {
@@ -565,7 +565,7 @@
       rhoArr[cell] = rho; uxArr[cell] = ux; uyArr[cell] = uy;
     }
     state.sanitizedNodes += corrected;
-    state.lastSanitizedNodes = corrected;
+    state.lastSanitizedNodes = accumulateStep ? (state.lastSanitizedNodes || 0) + corrected : corrected;
     if (sanitize && corrected) state.unstable = true;
     return corrected;
   }
@@ -578,6 +578,7 @@
     var uyArr = state.uy;
     var omega = state.omega;
     var n = state.cellCount;
+    var clampedCells = 0;
     for (var cell = 0; cell < n; cell++) {
       var b = baseOf(cell);
       if (state.mask[cell] === 1) {
@@ -587,11 +588,22 @@
       var rho = rhoArr[cell];
       var ux = uxArr[cell];
       var uy = uyArr[cell];
+      var cellRepaired = false;
       for (var q = 0; q < Q9; q++) {
         var feq = equilibrium(rho, ux, uy, q);
         var value = f[b + q] + omega * (feq - f[b + q]);
-        fs[b + q] = clamp(value, MIN_POPULATION, MAX_POPULATION);
+        if (value < MIN_POPULATION || value > MAX_POPULATION) {
+          cellRepaired = true;
+          value = clamp(value, MIN_POPULATION, MAX_POPULATION);
+        }
+        fs[b + q] = value;
       }
+      if (cellRepaired) clampedCells++;
+    }
+    if (clampedCells > 0) {
+      state.sanitizedNodes += clampedCells;
+      state.lastSanitizedNodes = (state.lastSanitizedNodes || 0) + clampedCells;
+      state.unstable = true;
     }
   }
 
@@ -765,8 +777,9 @@
     if (count === 0) return state;
     var s;
     for (s = 0; s < count; s++) {
+      state.lastSanitizedNodes = 0;
       applyPerturbation(state);
-      refreshMacroscopic(state, true);
+      refreshMacroscopic(state, true, true);
       collide(state);
       stream(state);
       applyInflow(state);
@@ -775,11 +788,11 @@
       if (state.time % 5 === 0 || state.time === 1) recordForce(state);
       if (state.unstable && state.sanitizedNodes > state.cellCount * 4) {
         state.stabilityStopped = true;
-        refreshMacroscopic(state, true);
+        refreshMacroscopic(state, true, true);
         throw new RangeError('Numerical stability limit reached at step ' + state.time + '. Increase viscosity or lower inflow speed.');
       }
     }
-    refreshMacroscopic(state, true);
+    refreshMacroscopic(state, true, true);
     return state;
   }
 
@@ -1024,12 +1037,26 @@
       }
       return null;
     }
+    var upperPts = coords.upper.map(surfacePoint);
+    var lowerPts = coords.lower.map(surfacePoint);
+    function outwardNormal(points, index, sign) {
+      var lo = Math.max(0, index - 1);
+      var hi = Math.min(points.length - 1, index + 1);
+      var dx = points[hi].x - points[lo].x;
+      var dy = points[hi].y - points[lo].y;
+      var len = Math.hypot(dx, dy);
+      if (len < 1e-12) {
+        var theta = Math.atan(coords.camberLine[index].slope);
+        var nx = -Math.sin(theta), ny = -Math.cos(theta);
+        return { x: sign * (nx * ca - ny * sa), y: sign * (nx * sa + ny * ca) };
+      }
+      return { x: sign * dy / len, y: -sign * dx / len };
+    }
     for (var k = 0; k < coords.upper.length; k++) {
-      var theta = Math.atan(coords.camberLine[k].slope);
-      var nx = -Math.sin(theta), ny = -Math.cos(theta);
-      var rx = nx * ca - ny * sa, ry = nx * sa + ny * ca;
-      var u = surfacePoint(coords.upper[k]), l = surfacePoint(coords.lower[k]);
-      var cpu = sample(u, rx, ry), cpl = sample(l, -rx, -ry);
+      var u = upperPts[k], l = lowerPts[k];
+      var nu = outwardNormal(upperPts, k, 1);
+      var nl = outwardNormal(lowerPts, k, -1);
+      var cpu = sample(u, nu.x, nu.y), cpl = sample(l, nl.x, nl.y);
       if (cpu == null || cpl == null) continue;
       rows.push({ xc: coords.camberLine[k].x, cpUpper: cpu, cpLower: cpl });
       upper.push({ x: u.x, y: u.y, cp: cpu }); lower.push({ x: l.x, y: l.y, cp: cpl });
@@ -1170,8 +1197,19 @@
     if (['zou-he', 'equilibrium'].indexOf(s.inflowMode) < 0 || ['convective', 'equilibrium'].indexOf(s.outflowMode) < 0 || ['bounce-back', 'free-slip'].indexOf(s.wallMode) < 0) throw new RangeError('Invalid checkpoint boundary conditions');
     if (snapshot.populations.length !== s.nx * s.ny * Q9 || snapshot.populations.some(function (value) { return !isFiniteNumber(value) || value < MIN_POPULATION || value > MAX_POPULATION; })) throw new RangeError('Invalid checkpoint population array');
     var mask = validateMask(snapshot.fields.solid, s.nx, s.ny);
-    var metadata = s.obstacle || {};
+    var metadata = s.obstacle;
+    if (metadata != null && (typeof metadata !== 'object' || Array.isArray(metadata))) throw new RangeError('Invalid checkpoint obstacle metadata');
+    metadata = metadata || {};
+    if (metadata.kind != null && typeof metadata.kind !== 'string') throw new RangeError('Invalid checkpoint obstacle kind');
+    if (metadata.code != null && typeof metadata.code !== 'string') throw new RangeError('Invalid checkpoint obstacle code');
+    if (metadata.shape != null && typeof metadata.shape !== 'string') throw new RangeError('Invalid checkpoint obstacle shape');
+    if (metadata.coefficientConvention != null && typeof metadata.coefficientConvention !== 'string') throw new RangeError('Invalid checkpoint obstacle convention');
+    if (metadata.clipped != null && typeof metadata.clipped !== 'boolean') throw new RangeError('Invalid checkpoint obstacle clipped flag');
+    if (metadata.angleDeg != null && (!isFiniteNumber(metadata.angleDeg) || metadata.angleDeg < -45 || metadata.angleDeg > 45)) throw new RangeError('Invalid checkpoint obstacle angleDeg');
+    if (metadata.chordPx != null && (!isFiniteNumber(metadata.chordPx) || metadata.chordPx < 0 || metadata.chordPx > Math.max(s.nx, s.ny) * 4)) throw new RangeError('Invalid checkpoint obstacle chordPx');
     if (metadata.kind === 'naca4') {
+      if (!isFiniteNumber(metadata.chordPx) || metadata.chordPx < 4 || metadata.chordPx > Math.min(s.nx, s.ny) * 4) throw new RangeError('Invalid checkpoint NACA chordPx');
+      if (!isFiniteNumber(metadata.angleDeg)) throw new RangeError('Invalid checkpoint NACA angleDeg');
       var geometry = generateNaca4Mask(metadata.code, metadata.chordPx, metadata.angleDeg, s.nx, s.ny);
       ['coordinates', 'polygon', 'maxCamber', 'camberPosition', 'thickness', 'projectedHeight'].forEach(function (key) { mask[key] = geometry[key]; });
     }

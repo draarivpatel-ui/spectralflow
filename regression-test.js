@@ -131,3 +131,51 @@ test('bluff body width and height match its actual raster exactly', () => {
   const mask = S.generateBluffBodyMask(80, 40, 12, 20);
   assert.equal(mask.solidCount, 240); assert.equal(mask.bounds.xMax - mask.bounds.xMin + 1, 12); assert.equal(mask.projectedHeight, 20);
 });
+
+test('collide clamps trigger sanitizedNodes accounting and unstable status', () => {
+  const state = S.createWindTunnel(32, 16, 0.06, 0.004, { mask: new Uint8Array(512), wallMode: 'free-slip', perturbation: 0 });
+  const eq = S.equilibriumArray(3.5, 0.06, 0);
+  for (let c = 0; c < state.cellCount; c++) state.f.set(eq, c * 9);
+  const cell = 8 * 32 + 16;
+  state.f.fill(0, cell * 9, cell * 9 + 9);
+  state.f[cell * 9 + 5] = 0.7; state.f[cell * 9 + 7] = 0.7;
+  S.stepLBM(state, 1);
+  assert.equal(state.unstable, true);
+  assert.equal(state.sanitizedNodes, 1);
+  assert.equal(state.lastSanitizedNodes, 1);
+});
+
+test('checkpoint rejects invalid obstacle metadata types and out-of-range airfoil geometry', () => {
+  const { snapshot } = checkpoint();
+  for (const mutate of [
+    s => { s.simulation.obstacle.angleDeg = 'invalid'; },
+    s => { s.simulation.obstacle.angleDeg = 90; },
+    s => { s.simulation.obstacle.chordPx = -5; },
+    s => { s.simulation.obstacle = { kind: 'naca4', code: '2412', angleDeg: 0, chordPx: 1 }; }
+  ]) {
+    const copy = JSON.parse(JSON.stringify(snapshot)); mutate(copy);
+    assert.throws(() => S.importSnapshotJSON(copy), /obstacle|NACA/i);
+  }
+});
+
+test('surfacePressureProfile samples along curved upper and lower surface normals rather than vertical camber normals', () => {
+  const mask = S.generateNaca4Mask('0030', 40, 0, 100, 50);
+  const state = S.createWindTunnel(100, 50, 0.06, 0.03, { mask });
+  const coords = mask.coordinates;
+  const k = Math.floor(coords.upper.length * 0.15);
+  const u = { x: 0.32 * 100 + (coords.upper[k].x - 0.25) * 40, y: 0.5 * 50 - coords.upper[k].y * 40 };
+  const lo = coords.upper[k - 1], hi = coords.upper[k + 1];
+  const dx = (hi.x - lo.x) * 40, dy = -(hi.y - lo.y) * 40, len = Math.hypot(dx, dy);
+  const nx = dy / len, ny = -dx / len;
+  assert.ok(Math.abs(nx) > 0.2);
+  for (let cell = 0; cell < state.cellCount; cell++) {
+    const i = cell % 100, j = Math.floor(cell / 100);
+    state.rho[cell] = 1 + 0.002 * ((i + 0.5 - u.x) * nx + (j + 0.5 - u.y) * ny);
+  }
+  const fields = S.computeFields(state);
+  const row = S.surfacePressureProfile(state, fields).rows.find(r => Math.abs(r.xc - coords.camberLine[k].x) < 1e-9);
+  assert.ok(row);
+  const sampleAlongCamVertical = fields.cp[Math.round(u.y - 2) * 100 + Math.round(u.x)];
+  assert.notEqual(Math.round(row.cpUpper * 1000), Math.round(sampleAlongCamVertical * 1000));
+});
+

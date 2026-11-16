@@ -77,3 +77,12 @@ test('invalid checkpoint import reports the error without throwing a console exc
 test('hatching updates its accessibility state and print remains available', () => {
   const h=bench();h.get('textureToggle').click();assert.equal(h.get('textureToggle').getAttribute('aria-pressed'),'true');h.get('printBtn').click();h.flushTimers();assert.deepEqual(h.errors,[]);h.dispose();
 });
+
+test('valid checkpoint import clears NACA geometry error and re-enables exports', async () => {
+  const h=bench(); const snapshotText=S.exportSnapshotJSON(S.createWindTunnel(220,92,0.06,0.025,{obstacle:'cylinder'}),{includePopulations:true});
+  change(h,'obstacleKind','custom'); change(h,'customCode','2012'); assert.equal(h.get('jsonBtn').disabled,true);
+  h.get('snapshotInput').files=[{size:snapshotText.length,text:async()=>snapshotText}]; h.event(h.get('snapshotInput'),'change');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.get('errorStatus').hidden,true); assert.equal(h.get('jsonBtn').disabled,false); assert.equal(h.get('csvBtn').disabled,false); h.dispose();
+});
+

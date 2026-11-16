@@ -1029,7 +1029,7 @@
     var rows = [
       ['Model geometry', mask.shape],
       ['NACA designation', mask.code || 'non-airfoil'],
-      ['Incidence alpha', (mask.angleDeg || 0).toFixed(1) + ' deg'],
+      ['Incidence alpha', (Number.isFinite(mask.angleDeg) ? mask.angleDeg : 0).toFixed(1) + ' deg'],
       ['Solid lattice nodes', String(mask.solidCount)],
       ['Force reference length', app.state.referenceHeight.toFixed(2) + ' px'],
       ['Coefficient convention', mask.kind === 'naca4' ? 'chord x unit span' : 'projected height x unit span'],
@@ -1485,6 +1485,7 @@
         ui.viscosityRange.min = Math.min(Number(ui.viscosityRange.min), restored.viscosity); ui.viscosityRange.max = Math.max(Number(ui.viscosityRange.max), restored.viscosity);
         ui.speedRange.value = restored.u0; ui.viscosityRange.value = restored.viscosity;
         updateControlLabels(); seedTracers(); app.diag = SF.computeDiagnostics(restored); renderAll(true);
+        [ui.csvBtn, ui.forceCsvBtn, ui.fieldCsvBtn, ui.jsonBtn].forEach(function (node) { node.disabled = false; });
         ui.errorStatus.hidden = true; ui.scenarioStatus.textContent = 'Checkpoint restored at step ' + restored.time + '. Resume when ready.';
         announce(ui.scenarioStatus.textContent);
       } catch (error) { reportError('Import failed: ' + error.message); }
