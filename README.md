@@ -58,10 +58,10 @@ The engine bounds grid allocation to 262,144 cells and coordinate sampling to 4,
 Node.js 22 or newer:
 
 ```sh
-node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js
+node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js
 ```
 
-**132 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 29 numerical/export regressions, 20 DOM/controller checks and 16 revamp/adversarial regressions.
+**205 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 29 numerical/export regressions, 20 DOM/controller checks, 16 revamp/adversarial regressions and 73 Wave 3 audit checks (SHA-256 checkpoint integrity, conservation stencils, fail-closed clamps, NACA invariants, obstacle symmetry, Strouhal edges, adversarial checkpoint defenses, WCAG 2.1.4 shortcut toggle, CSP and injection fences).
 
 Coverage includes lattice isotropy, equilibrium mass and momentum, NACA symmetry, positive/negative incidence trends, solid and inlet boundary behavior, Venturi acceleration, bounded force history, analytic gradients, coherent repair, finite CSV schemas, strict checkpoint validation, exact resumed evolution and every showcase scenario.
 
@@ -93,7 +93,7 @@ A telemetry-only JSON export can omit populations or heavy fields. Only a comple
 | `app.js` | Animation scheduling, controls, plots, probes and checkpoint workflow |
 | `index.html`, `style.css` | Responsive laboratory, themes and accessible controls |
 | `test.js`, `regression-test.js` | Physics, numerical, schema and resumed-evolution checks |
-| `ui-test.js`, `dom-harness.js` | Actual controller tests with deterministic DOM/canvas adapters |
+| `ui-test.js`, `revamp-test.js`, `audit-test.js`, `dom-harness.js` | Actual controller, revamp and Wave 3 audit tests with deterministic DOM/canvas adapters |
 
 ## Scope and next steps
 

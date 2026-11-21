@@ -36,6 +36,9 @@
   var MAX_SPEED = 0.16;
   var MAX_LATTICE_SPEED = 0.38;
   var MIN_DENSITY = 0.25;
+  /* References below half a lattice cell cannot represent an obstacle and let
+     the dynamic pressure q underflow into non-finite force coefficients. */
+  var MIN_REFERENCE = 0.5;
   var MAX_DENSITY = 4.0;
   var MIN_POPULATION = -0.5;
   var MAX_POPULATION = 8.0;
@@ -233,7 +236,7 @@
     return copy;
   }
 
-  function positiveReference(value, fallback) { return isFiniteNumber(value) && value > 0 ? value : fallback; }
+  function positiveReference(value, fallback) { return isFiniteNumber(value) && value >= MIN_REFERENCE ? value : fallback; }
 
   /* ---------------- Obstacle generators ---------------- */
 
@@ -308,6 +311,7 @@
       }
     }
     var b = maskBounds(mask, nx, ny);
+    if (!b.count) throw new RangeError('Cylinder resolves no solid cells. Keep the center inside the tunnel.');
     return attachMaskMetadata(mask, {
       kind: 'cylinder', code: 'CYL', nx: nx, ny: ny, radiusPx: r,
       centerX: cx, centerY: cy, solidCount: b.count, bounds: b,
@@ -367,7 +371,8 @@
     for (i = 0; i < nx; i++) {
       var clearance = top[i];
       for (var j = 0; j < ny; j++) {
-        if (j < half - clearance || j > half + clearance) mask[indexOf(nx, i, j)] = 1;
+        /* Cell-center sampling keeps the two walls mirror symmetric. */
+        if (j + 0.5 < half - clearance || j + 0.5 > half + clearance) mask[indexOf(nx, i, j)] = 1;
       }
     }
     /* Keep short inlet and outlet reservoirs fully open for the boundary rules. */
@@ -677,7 +682,7 @@
             var rho = state.rho[prev];
             var ux = state.ux[prev];
             var uy = state.uy[prev];
-            f[bl + q] = equilibrium(clamp(rho, 0.9, 1.1), clamp(ux, -MAX_SPEED, MAX_SPEED), uy, q);
+            f[bl + q] = equilibrium(clamp(rho, 0.9, 1.1), clamp(ux, -MAX_SPEED, MAX_SPEED), clamp(uy, -MAX_SPEED, MAX_SPEED), q);
           } else {
             f[bl + q] = fx[bp + q];
           }
@@ -769,6 +774,7 @@
 
   function recordForce(state) {
     var q = 0.5 * state.rho0 * state.u0 * state.u0 * state.referenceHeight;
+    if (!isFiniteNumber(q) || q <= 0) q = 1e-9;
     var cd = state.forceX / q;
     var cl = -state.forceY / q;
     var entry = {
@@ -811,6 +817,11 @@
       }
     }
     refreshMacroscopic(state, true, true);
+    /* Boundary patches run after streaming, so their repairs land in the final
+       pass. Flag the limit there too; the next step call will refuse to run. */
+    if (!state.stabilityStopped && state.lastSanitizedNodes > Math.max(32, Math.round(state.cellCount * 0.005))) {
+      state.stabilityStopped = true;
+    }
     return state;
   }
 
@@ -912,6 +923,7 @@
    */
   function computeForceCoefficients(state) {
     var q = 0.5 * state.rho0 * state.u0 * state.u0 * state.referenceHeight;
+    if (!isFiniteNumber(q) || q <= 0) q = 1e-9;
     var cd = state.forceX / q;
     var cl = -state.forceY / q;
     var window = state.forceHistory.slice(-160);
@@ -1175,6 +1187,87 @@
     return s;
   }
 
+  /* ---------------- SHA-256 checkpoint integrity ---------------- */
+
+  function utf8Bytes(text) {
+    var s = String(text);
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var cp = s.codePointAt(i);
+      if (cp > 0xffff) i++;
+      else if (cp >= 0xd800 && cp <= 0xdfff) cp = 0xfffd; /* lone surrogate */
+      if (cp < 0x80) out.push(cp);
+      else if (cp < 0x800) out.push(0xc0 | (cp >> 6), 0x80 | (cp & 63));
+      else if (cp < 0x10000) out.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+      else out.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+    }
+    return out;
+  }
+
+  var SHA256_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+
+  function sha256Hex(text) {
+    var bytes = utf8Bytes(text);
+    var bitLenHi = Math.floor(bytes.length / 0x20000000);
+    var bitLenLo = (bytes.length * 8) >>> 0;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    bytes.push((bitLenHi >>> 24) & 255, (bitLenHi >>> 16) & 255, (bitLenHi >>> 8) & 255, bitLenHi & 255);
+    bytes.push((bitLenLo >>> 24) & 255, (bitLenLo >>> 16) & 255, (bitLenLo >>> 8) & 255, bitLenLo & 255);
+    var h = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    var w = new Array(64);
+    for (var block = 0; block < bytes.length; block += 64) {
+      for (var t = 0; t < 16; t++) {
+        var o = block + t * 4;
+        w[t] = ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
+      }
+      for (t = 16; t < 64; t++) {
+        var s0 = ((w[t - 15] >>> 7 | w[t - 15] << 25) ^ (w[t - 15] >>> 18 | w[t - 15] << 14) ^ (w[t - 15] >>> 3)) >>> 0;
+        var s1 = ((w[t - 2] >>> 17 | w[t - 2] << 15) ^ (w[t - 2] >>> 19 | w[t - 2] << 13) ^ (w[t - 2] >>> 10)) >>> 0;
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) >>> 0;
+      }
+      var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = ((e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7)) >>> 0;
+        var ch = ((e & f) ^ (~e & g)) >>> 0;
+        var t1 = (hh + S1 + ch + SHA256_K[t] + w[t]) >>> 0;
+        var S0 = ((a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10)) >>> 0;
+        var maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+        var t2 = (S0 + maj) >>> 0;
+        hh = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+      }
+      h[0] = (h[0] + a) >>> 0; h[1] = (h[1] + b) >>> 0; h[2] = (h[2] + c) >>> 0; h[3] = (h[3] + d) >>> 0;
+      h[4] = (h[4] + e) >>> 0; h[5] = (h[5] + f) >>> 0; h[6] = (h[6] + g) >>> 0; h[7] = (h[7] + hh) >>> 0;
+    }
+    var hex = '';
+    for (var k = 0; k < 8; k++) hex += ('00000000' + h[k].toString(16)).slice(-8);
+    return hex;
+  }
+
+  /*
+   * Canonical signed payload: every trusted top-level section in a fixed key
+   * order. Diagnostics are signed too because the importer trusts its force
+   * pair. The digest guards file corruption and hand edits; it is a checksum,
+   * not a signature.
+   */
+  function checkpointDigest(snapshot) {
+    var signed = {};
+    ['format', 'version', 'schemaVersion', 'generatedBy', 'simulation', 'diagnostics',
+      'wakeProfile', 'centerlineProfile', 'forceHistory', 'fields', 'populations'].forEach(function (key) {
+      signed[key] = snapshot[key] === undefined ? null : snapshot[key];
+    });
+    return sha256Hex(JSON.stringify(signed));
+  }
+
   function exportWakeProfileCSV(state, xFraction) {
     var wake = wakeProfile(state, xFraction);
     var rows = ['y,ux,uy,speed,rho,cp,curl,solid'];
@@ -1269,6 +1362,18 @@
       snapshot.populations = Array.prototype.slice.call(state.f);
       if (snapshot.populations.some(function (value) { return !isFiniteNumber(value); })) throw new RangeError('Cannot export nonfinite populations');
     }
+    /* Telemetry sections are signed too; refuse to serialize nonfinite data
+       the way the field arrays already do instead of emitting JSON nulls. */
+    if (!snapshot.forceHistory.every(function (entry) {
+      return entry && ['fx', 'fy', 'cd', 'cl', 'ld'].every(function (key) { return isFiniteNumber(entry[key]); });
+    })) throw new RangeError('Cannot export nonfinite force history');
+    if (!snapshot.wakeProfile.samples.every(function (sample) {
+      return ['ux', 'uy', 'speed', 'rho', 'cp', 'curl'].every(function (key) { return isFiniteNumber(sample[key]); });
+    })) throw new RangeError('Cannot export nonfinite wake profile');
+    if (!snapshot.centerlineProfile.every(function (point) {
+      return ['ux', 'uy', 'speed', 'cp', 'curl', 'rho'].every(function (key) { return isFiniteNumber(point[key]); });
+    })) throw new RangeError('Cannot export nonfinite centerline profile');
+    snapshot.integrity = { algorithm: 'SHA-256', scope: 'full-snapshot', digest: checkpointDigest(snapshot) };
     return JSON.stringify(snapshot, null, 2);
   }
 
@@ -1301,11 +1406,28 @@
       if (!isFiniteNumber(metadata.chordPx) || metadata.chordPx < 4 || metadata.chordPx > Math.min(s.nx, s.ny) * 4) throw new RangeError('Invalid checkpoint NACA chordPx');
       if (!isFiniteNumber(metadata.angleDeg)) throw new RangeError('Invalid checkpoint NACA angleDeg');
       var geometry = generateNaca4Mask(metadata.code, metadata.chordPx, metadata.angleDeg, s.nx, s.ny);
+      /* The regenerated raster is deterministic, so it must equal the signed
+         solid field exactly; otherwise the metadata claims an airfoil the
+         checkpoint does not actually contain. */
+      for (var mi = 0; mi < geometry.length; mi++) {
+        if (geometry[mi] !== mask[mi]) throw new RangeError('Checkpoint NACA obstacle geometry disagrees with the obstacle mask');
+      }
       ['coordinates', 'polygon', 'maxCamber', 'camberPosition', 'thickness', 'projectedHeight'].forEach(function (key) { mask[key] = geometry[key]; });
     }
     ['kind', 'code', 'shape', 'angleDeg', 'chordPx', 'coefficientConvention', 'clipped'].forEach(function (key) { if (metadata[key] != null) mask[key] = metadata[key]; });
+    /* Structural checks passed; now verify the payload was not edited in ways
+       that still look valid, such as an in-range speed or a swapped sample. */
+    if (snapshot.integrity != null) {
+      var integrity = snapshot.integrity;
+      if (typeof integrity !== 'object' || Array.isArray(integrity) ||
+          integrity.algorithm !== 'SHA-256' || integrity.scope !== 'full-snapshot' ||
+          typeof integrity.digest !== 'string' || !/^[0-9a-f]{64}$/.test(integrity.digest)) {
+        throw new RangeError('Invalid checkpoint integrity block');
+      }
+      if (checkpointDigest(snapshot) !== integrity.digest) throw new RangeError('Checkpoint integrity digest mismatch');
+    }
     var maximumReference = Math.max(s.nx, s.ny) * 4;
-    if (!isFiniteNumber(s.referenceLength) || s.referenceLength <= 0 || s.referenceLength > maximumReference || !isFiniteNumber(s.coefficientReference) || s.coefficientReference <= 0 || s.coefficientReference > maximumReference) throw new RangeError('Invalid checkpoint reference lengths');
+    if (!isFiniteNumber(s.referenceLength) || s.referenceLength < MIN_REFERENCE || s.referenceLength > maximumReference || !isFiniteNumber(s.coefficientReference) || s.coefficientReference < MIN_REFERENCE || s.coefficientReference > maximumReference) throw new RangeError('Invalid checkpoint reference lengths');
     mask.referenceLength = s.referenceLength; mask.forceReferenceLength = s.coefficientReference;
     if (!mask.projectedHeight) mask.projectedHeight = s.coefficientReference;
     var state = createWindTunnel(s.nx, s.ny, s.u0, s.viscosity, { mask: mask, inflowMode: s.inflowMode, outflowMode: s.outflowMode, wallMode: s.wallMode, seed: s.seed, perturbation: s.perturbation });
@@ -1317,14 +1439,20 @@
       if (snapshot.fields[key].some(function (value, index) { return Math.abs(value - array[index]) > 0.000005001; })) throw new RangeError('Checkpoint fields disagree with populations: ' + key);
     });
     state.time = s.time;
+    if (snapshot.forceHistory != null && !Array.isArray(snapshot.forceHistory)) throw new RangeError('Invalid checkpoint force history');
     state.forceHistory = Array.isArray(snapshot.forceHistory) ? snapshot.forceHistory.slice(-HISTORY_LIMIT).map(function (entry) {
       if (!entry || !Number.isInteger(entry.step) || entry.step < 0 || entry.step > s.time || ['fx', 'fy', 'cd', 'cl', 'ld'].some(function (key) { return !isFiniteNumber(entry[key]); })) throw new RangeError('Invalid checkpoint force history');
       return { step: entry.step, fx: entry.fx, fy: entry.fy, cd: entry.cd, cl: entry.cl, ld: entry.ld };
     }) : [];
     if (!snapshot.diagnostics || !isFiniteNumber(snapshot.diagnostics.fx) || !isFiniteNumber(snapshot.diagnostics.fy)) throw new RangeError('Invalid checkpoint force balance');
     state.forceX = snapshot.diagnostics.fx; state.forceY = snapshot.diagnostics.fy;
-    state.unstable = !!s.unstable; state.stabilityStopped = !!s.stabilityStopped;
-    state.sanitizedNodes = Number.isInteger(s.sanitizedNodes) && s.sanitizedNodes >= 0 ? s.sanitizedNodes : 0;
+    if (s.unstable != null && typeof s.unstable !== 'boolean') throw new RangeError('Invalid checkpoint unstable flag');
+    if (s.stabilityStopped != null && typeof s.stabilityStopped !== 'boolean') throw new RangeError('Invalid checkpoint stability flag');
+    state.unstable = s.unstable === true; state.stabilityStopped = s.stabilityStopped === true;
+    /* A live state stops at the 4x-cell repair budget; 8x allows the stopped
+       state's final step plus margin while refusing impossible counters. */
+    if (s.sanitizedNodes != null && (!Number.isInteger(s.sanitizedNodes) || s.sanitizedNodes < 0 || s.sanitizedNodes > state.cellCount * 8)) throw new RangeError('Invalid checkpoint repair count');
+    state.sanitizedNodes = s.sanitizedNodes || 0;
     if (!isFiniteNumber(s.initialFluidMass) || s.initialFluidMass <= 0 || s.initialFluidMass > state.cellCount * MAX_DENSITY) throw new RangeError('Invalid checkpoint initial mass');
     state.initialFluidMass = s.initialFluidMass;
     return state;
@@ -1407,7 +1535,8 @@
     surfacePressureProfile: surfacePressureProfile,
     getScenario: getScenario,
     listScenarios: listScenarios,
-    csvEscape: csvEscape
+    csvEscape: csvEscape,
+    sha256Hex: sha256Hex
   };
 
   return api;

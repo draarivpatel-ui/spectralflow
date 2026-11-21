@@ -16,7 +16,7 @@ The standalone JavaScript kernel shares its geometry and solver with the browser
 
 NACA sections use the closed trailing-edge thickness polynomial and normal offsets from their mean camber line. Pressure sampling follows the rotated section normals. Integrating pressure around the closed contour produces a pressure-only force that can be compared with the total link force in the same coefficient convention.
 
-The controller draws with local Canvas and SVG, schedules one animation loop and prepares presets in bounded batches. It reads a checkpoint back and compares all populations before offering the download. Import validation also checks whether the rounded diagnostic fields agree with the full distributions.
+The controller draws with local Canvas and SVG, schedules one animation loop and prepares presets in bounded batches. It reads a checkpoint back and compares all populations before offering the download. Import validation also checks whether the rounded diagnostic fields agree with the full distributions, and a SHA-256 digest signed over the whole payload rejects edits that would still look valid, such as an in-range speed change or a swapped wake sample.
 
 ## Challenges
 
@@ -35,22 +35,26 @@ The UI preserved stale SVG children by position, could schedule duplicate animat
 - A checkpoint restores all 182,160 populations with zero population error.
 - The restored solver produces the same next twenty steps as its original state.
 - Every shipped experiment runs through its preparation steps without numerical repair in the scenario suite.
+- Checkpoints carry a SHA-256 integrity digest; forged or hand-edited payloads are refused on import.
+- Probe keyboard shortcuts honor WCAG 2.1.4 with a persistent off toggle, and a strict content policy closes script, object, form and network surfaces.
 
 ## Verification numbers
 
 Verified on Node v24.16.0 with:
 
 ```sh
-node --test --test-reporter=spec test.js regression-test.js ui-test.js
+node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js
 ```
 
-**116 passed, 0 failed, 0 skipped.**
+**205 passed, 0 failed, 0 skipped.**
 
 | Verification | Observed result |
 | --- | --- |
 | Base physics and export checks | 67 tests |
 | Numerical and checkpoint regressions | 29 tests |
 | DOM/controller checks | 20 tests |
+| Revamp/adversarial regressions | 16 tests |
+| Wave 3 audit checks | 73 tests |
 | Browser lattice sites | 20,240 |
 | Browser checkpoint populations | 182,160 |
 | Full-field CSV data rows | 20,240 |

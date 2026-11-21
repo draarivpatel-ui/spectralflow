@@ -51,7 +51,8 @@
     csvBtn: $('csvBtn'), forceCsvBtn: $('forceCsvBtn'), jsonBtn: $('jsonBtn'),
     liveStatus: $('liveStatus'), solverStatus: $('solverStatus'), scenarioStatus: $('scenarioStatus'),
     errorStatus: $('errorStatus'), probeReadout: $('probeReadout'), pinProbe: $('pinProbe'),
-    importBtn: $('importBtn'), snapshotInput: $('snapshotInput'), fieldCsvBtn: $('fieldCsvBtn')
+    importBtn: $('importBtn'), snapshotInput: $('snapshotInput'), fieldCsvBtn: $('fieldCsvBtn'),
+    keysToggle: $('keysToggle'), probeHelp: $('probeHelp')
   };
 
   var app = {
@@ -78,6 +79,7 @@
   app.scenario = '';
   app.probe = { i: Math.round(NX * 0.6), j: Math.floor(NY / 2) };
   app.probePinned = false;
+  app.keys = true;
 
   /* ---------------- Color helpers ---------------- */
 
@@ -220,7 +222,20 @@
       SF.setObstacle(app.state, mask);
     }
     if (resetParticles !== false) seedTracers();
-    SF.stepLBM(app.state, 40);
+    try {
+      SF.stepLBM(app.state, 40);
+    } catch (error) {
+      /* A warm-up blow-up must never escape as an uncaught page error. Show
+         the state that exists, park the loop, and report the solver message. */
+      app.diag = SF.computeDiagnostics(app.state);
+      computeSchlierenField();
+      app.frame = 0;
+      app.warmRemaining = 0;
+      renderAll(true);
+      setRunning(false);
+      reportError(error.message);
+      return false;
+    }
     app.diag = SF.computeDiagnostics(app.state);
     computeSchlierenField();
     app.frame = 0;
@@ -300,6 +315,7 @@
       (1 - fx) * fy * at(0, 1, ux) + fx * fy * at(1, 1, ux);
     var vy = (1 - fx) * (1 - fy) * at(0, 0, uy) + fx * (1 - fy) * at(1, 0, uy) +
       (1 - fx) * fy * at(0, 1, uy) + fx * fy * at(1, 1, uy);
+    if (!Number.isFinite(vx) || !Number.isFinite(vy)) return null;
     return [vx, vy];
   }
 
@@ -395,6 +411,9 @@
         continue;
       }
       var v = arr[cell];
+      /* A nonfinite field value must not silently paint as a blank cell. The
+         health strip flags it; the cell renders at the neutral scale point. */
+      if (!Number.isFinite(v)) v = 0;
       var t;
       if (f === 'speed' || f === 'tracers' || f === 'schlieren') {
         t = Math.max(0, Math.min(1, v / limit));
@@ -587,6 +606,9 @@
   }
 
   function niceTicks(min, max, count) {
+    /* A nonfinite bound must never reach the tick loop: step arithmetic on
+       infinities yields NaN/identical v and the loop never terminates. */
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return { lo: -1, hi: 1, ticks: [-1, 0, 1] };
     var span = max - min;
     if (span <= 0 || !Number.isFinite(span)) span = 1;
     var raw = span / count;
@@ -595,8 +617,9 @@
     var step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
     var lo = Math.floor(min / step) * step;
     var hi = Math.ceil(max / step) * step;
+    if (hi <= lo) hi = lo + step;
     var ticks = [];
-    for (var v = lo; v <= hi + step * 0.5; v += step) {
+    for (var v = lo; v <= hi + step * 0.5 && ticks.length < 1024; v += step) {
       ticks.push(Math.abs(v) < step * 1e-9 ? 0 : v);
     }
     return { lo: lo, hi: hi, ticks: ticks };
@@ -1330,6 +1353,24 @@
     try { localStorage.setItem('spectralflow-theme', theme); } catch (e) { /* storage optional */ }
   }
 
+  /* WCAG 2.1.4: every probe keyboard shortcut on the canvas can be turned off.
+     Pointer inspection and the Pin probe button keep working either way. */
+  function applyKeys(on) {
+    app.keys = on;
+    ui.keysToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    ui.keysToggle.textContent = on ? 'Probe keys on' : 'Probe keys';
+    ui.probeHelp.textContent = on
+      ? 'Hover or tap to inspect. Arrow keys move the probe; Shift moves ten cells. Enter pins, Escape releases. Numbers use dimensionless lattice units.'
+      : 'Hover or tap to inspect. Probe keyboard navigation is off; the Probe keys button turns it back on. Numbers use dimensionless lattice units.';
+    try { localStorage.setItem('spectralflow-keys', on ? 'on' : 'off'); } catch (e) { /* storage optional */ }
+  }
+
+  function initKeys() {
+    var saved = null;
+    try { saved = localStorage.getItem('spectralflow-keys'); } catch (e) { /* storage optional */ }
+    applyKeys(saved !== 'off');
+  }
+
   function initTheme() {
     var saved = null;
     try { saved = localStorage.getItem('spectralflow-theme'); } catch (e) { /* storage optional */ }
@@ -1430,10 +1471,16 @@
       announce('Hatching ' + (app.texture ? 'enabled' : 'disabled') + '.');
     });
 
+    ui.keysToggle.addEventListener('click', function () {
+      applyKeys(!app.keys);
+      announce('Probe keyboard navigation ' + (app.keys ? 'enabled' : 'disabled') + '.');
+    });
+
     ui.canvas.addEventListener('pointermove', function (event) { if (!app.probePinned) showFieldTooltip(event); });
     ui.canvas.addEventListener('pointerdown', function (event) { if (!app.probePinned) showFieldTooltip(event); toggleProbePin(); });
     ui.canvas.addEventListener('focus', renderProbeReadout);
     ui.canvas.addEventListener('keydown', function (event) {
+      if (!app.keys) return;
       var amount = event.shiftKey ? 10 : 1;
       if (event.key === 'ArrowLeft') app.probe.i = Math.max(0, app.probe.i - amount);
       else if (event.key === 'ArrowRight') app.probe.i = Math.min(NX - 1, app.probe.i + amount);
@@ -1530,6 +1577,7 @@
   /* ---------------- Bootstrap ---------------- */
 
   initTheme();
+  initKeys();
   refreshColors();
   bindEvents();
   rebuild(true);

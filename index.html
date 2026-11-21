@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="SpectralFlow is a local wind tunnel laboratory with live flow fields, pressure integration, numerical health checks and resumable checkpoints.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kC8r/sSriCBZcWHSzBBNLm4SLBdZniLYsdmxOOLNvuM='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'none'">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1e2e'/%3E%3Cpath d='M3 22c6-9 9 6 13-4 3-7 8-6 13-11' fill='none' stroke='%2383c6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <title>SpectralFlow | See the flow. Measure the physics.</title>
 <link rel="stylesheet" href="style.css">
@@ -132,6 +133,7 @@
           <button type="button" class="seg" data-field="tracers" role="radio" aria-checked="false">Smoke tracers</button>
         </div>
         <button type="button" id="textureToggle" class="btn btn-small" aria-pressed="false">Hatching</button>
+        <button type="button" id="keysToggle" class="btn btn-small" aria-pressed="true">Probe keys on</button>
       </div>
     </div>
 
@@ -143,7 +145,7 @@
         <span>Convective outlet x = 219</span>
       </div>
       <div class="canvas-wrap">
-        <canvas id="flowCanvas" width="880" height="368" role="img" tabindex="0" aria-describedby="probeHelp" aria-label="Live lattice Boltzmann wind tunnel test section around the selected obstacle. Data tables below provide the numerical readings.">Your browser does not support HTML5 canvas. Refer to the tabular data below.</canvas>
+        <canvas id="flowCanvas" width="880" height="368" role="img" tabindex="0" aria-describedby="probeHelp" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home End Enter Escape" aria-label="Live lattice Boltzmann wind tunnel test section around the selected obstacle. Data tables below provide the numerical readings.">Your browser does not support HTML5 canvas. Refer to the tabular data below.</canvas>
         <div id="fieldTooltip" class="field-tooltip" role="status" aria-live="off" hidden></div>
       </div>
     </div>
