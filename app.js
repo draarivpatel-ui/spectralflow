@@ -155,15 +155,20 @@
     return out;
   }
 
+  /* Scratch buffer reused across frames: scaleLimit runs on every render, so
+     a fresh 20k-element Array plus comparator sort per frame is GC churn. */
+  var scaleScratch = new Float64Array(NX * NY);
   function scaleLimit(arr, mask, floor) {
-    var vals = [];
+    var count = 0;
     for (var cell = 0; cell < arr.length; cell++) {
       if (mask[cell] === 1) continue;
-      vals.push(Math.abs(arr[cell]));
+      var v = Math.abs(arr[cell]);
+      if (Number.isFinite(v)) scaleScratch[count++] = v;
     }
-    if (vals.length === 0) return floor;
-    vals.sort(function (a, b) { return a - b; });
-    var p = vals[Math.floor(vals.length * 0.985)];
+    if (count === 0) return floor;
+    var view = scaleScratch.subarray(0, count);
+    view.sort();
+    var p = view[Math.floor(count * 0.985)];
     return Math.max(floor, Math.min(p, floor * 400));
   }
 
@@ -706,8 +711,14 @@
       ' L' + xOf(scale.lo).toFixed(2) + ' ' + PLOT.top + ' Z';
     svg.appendChild(svgEl('path', { d: area, fill: cssVar('--series-1'), opacity: '0.10' }));
     svg.appendChild(svgEl('path', { d: pathFrom(pts), class: 'series-line', stroke: cssVar('--series-1') }));
-    var deficitIndex = 0;
-    for (var m = 1; m < vals.length; m++) if (vals[m] < vals[deficitIndex]) deficitIndex = m;
+    /* The minimum callout must mark the wake deficit, not the stationary
+       wall rows (j = 0 and j = ny - 1 always sit at u = 0). */
+    var deficitIndex = -1;
+    for (var m = 0; m < vals.length; m++) {
+      if (m === 0 || m === vals.length - 1 || samples[m].solid) continue;
+      if (deficitIndex < 0 || vals[m] < vals[deficitIndex]) deficitIndex = m;
+    }
+    if (deficitIndex < 0) deficitIndex = 0;
     var ep = pts[deficitIndex];
     svg.appendChild(svgEl('circle', {
       cx: ep[0], cy: ep[1], r: 4,
@@ -832,6 +843,7 @@
       { key: 'cd', color: cssVar('--series-1'), name: 'Drag Cd' },
       { key: 'cl', color: cssVar('--series-2'), name: 'Lift Cl' }
     ];
+    var usedLabelSlots = [];
     app.forcePoints = hist.map(function (h) { return { x: xOf(h.step), cd: yOf(h.cd), cl: yOf(h.cl), sample: h }; });
     series.forEach(function (s) {
       var pts = app.forcePoints.map(function (p) { return [p.x, p[s.key]]; });
@@ -845,6 +857,12 @@
       var anchor = 'end';
       var lx = last[0] - 7;
       if (last[0] < PLOT.left + 50) { anchor = 'start'; lx = last[0] + 7; }
+      /* Two series ending near the same y collide; keep ~14 px of separation
+         and clamp inside the plot area (collision order matches series order). */
+      if (usedLabelSlots.some(function (slot) { return Math.abs(slot - labelY) < 14; })) {
+        labelY = Math.max(PLOT.top + 10, Math.min(PLOT.bottom - 3, labelY + 14));
+      }
+      usedLabelSlots.push(labelY);
       svg.appendChild(svgEl('text', {
         x: lx, y: labelY, class: 'end-label', 'text-anchor': anchor, fill: cssVar('--text-primary')
       }, value.toFixed(2)));

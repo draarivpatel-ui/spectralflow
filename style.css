@@ -326,7 +326,9 @@ main {
 
 .telemetry-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Six cells in the markup; a 5-column track orphaned the Strouhal cell
+     onto a second full-width row. */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   background: var(--surface-2);
 }
 
@@ -821,6 +823,11 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+/* Inline sub/sup must not stretch the line box inside formulas and labels. */
+sub, sup {
+  line-height: 0;
+}
+
 .site-footer {
   max-width: 1380px;
   margin: 0 auto;
@@ -991,8 +998,8 @@ main { border:0; background:transparent; gap:18px; }
 .formula { border-radius:5px; }
 .site-footer { font-size:11px; line-height:1.7; }
 .site-footer p { max-width:65ch; }
-@media(max-width:1100px) { .control-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .plot-matrix { grid-template-columns:1fr; } }
-@media(max-width:800px) { .showcase { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-header { flex-direction:column; align-items:flex-start; } .header-actions { max-width:none; } .status-readout { width:auto; } .showcase-heading { flex-direction:column; } }
+@media(max-width:1100px) { .control-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .plot-matrix { grid-template-columns:1fr; } .telemetry-strip { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(max-width:800px) { .showcase { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-header { flex-direction:column; align-items:flex-start; } .header-actions { max-width:none; } .status-readout { width:auto; } .showcase-heading { flex-direction:column; } .telemetry-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:580px) { .showcase { grid-template-columns:1fr; } .control-grid { grid-template-columns:repeat(2,minmax(0,1fr)); padding:14px; } .telemetry-strip { grid-template-columns:repeat(2,minmax(0,1fr)); } .telemetry-val { font-size:20px; } .report-figure { padding:14px; } .legend-ticks { gap:8px; } .section-bar { padding:14px; } }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration:0.01ms !important; transition-duration:0.01ms !important; } }
 @media print { .showcase,.health-strip,.probe-bar,.probe-help,.error-status { display:none !important; } :root,:root[data-theme="dark"] { --page:#fff; --surface-1:#fff; --surface-2:#f2f2f2; --text-primary:#111; --text-secondary:#333; --text-muted:#444; --border:#999; } }

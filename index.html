@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="description" content="SpectralFlow is a local wind tunnel laboratory with live flow fields, pressure integration, numerical health checks and resumable checkpoints.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1e2e'/%3E%3Cpath d='M3 22c6-9 9 6 13-4 3-7 8-6 13-11' fill='none' stroke='%2383c6ff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <title>SpectralFlow | See the flow. Measure the physics.</title>
 <link rel="stylesheet" href="style.css">
+<script>try{var t=localStorage.getItem('spectralflow-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 </head>
 <body>
 <a class="skip-link" href="#workbench">Skip to wind tunnel test bench</a>
@@ -68,7 +70,7 @@
         <input type="range" id="angleRange" min="-20" max="20" step="1" value="6">
       </div>
       <div class="control-field">
-        <label for="speedRange">Inflow speed u<sub>0</sub> <output id="speedValue" for="speedRange">0.080</output></label>
+        <label for="speedRange"><span>Inflow speed u<sub>0</sub></span> <output id="speedValue" for="speedRange">0.080</output></label>
         <input type="range" id="speedRange" min="0.01" max="0.14" step="0.005" value="0.08">
       </div>
       <div class="control-field">

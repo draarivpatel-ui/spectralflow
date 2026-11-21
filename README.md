@@ -37,7 +37,7 @@ Airfoil lift and drag use **chord times unit span**. Cylinders and bluff bodies 
 - Five field views: physical vorticity, numerical Schlieren, pressure coefficient, speed and smoke tracers.
 - Pointer and keyboard lattice probes with actual rho, velocity, pressure and vorticity readings.
 - Arrow keys move one cell; Shift moves ten. Home/End select the inlet/outlet. Enter pins a probe and Escape releases it.
-- Live finite-field, inlet-residual, repaired-node and peak-Mach readouts.
+- Live finite-field, inlet-residual, repaired-node and peak-Mach readouts in a six-cell telemetry strip (Reynolds, mean drag, mean lift, lift-to-drag, BGK relaxation, Strouhal).
 - Chordwise Cp, wake traverse, force history, geometry and measured force trajectory plots, with accessible data tables.
 - Wake CSV, force CSV and a complete nine-column field CSV with one row per lattice site.
 - Checkpoint JSON preserves all populations, boundary modes, operating conditions and force samples. The browser verifies its round trip before download.
@@ -66,6 +66,8 @@ node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-te
 Coverage includes lattice isotropy, equilibrium mass and momentum, NACA symmetry, positive/negative incidence trends, solid and inlet boundary behavior, Venturi acceleration, bounded force history, analytic gradients, coherent repair, finite CSV schemas, strict checkpoint validation, exact resumed evolution and every showcase scenario.
 
 The deterministic DOM adapter executes the actual HTML scripts and checks startup, preset handlers, single animation scheduling, visibility suspension, probe keys, pinning, DPI resize, SVG metadata, downloads, imports and error recovery. It records zero console/reference errors. It does not measure browser layout or claim a rendered screenshot.
+
+Headless-Chrome spot checks on 2026-11-20 (Wave 2 polish pass) additionally confirmed zero console errors, zero external requests and no horizontal page overflow at 1440x900 and 390x844, in both themes.
 
 ## Node API
 
