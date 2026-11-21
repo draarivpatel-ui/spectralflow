@@ -37,6 +37,7 @@
     statRe: $('statRe'), statReNote: $('statReNote'), statCd: $('statCd'),
     statCl: $('statCl'), statClNote: $('statClNote'), statLd: $('statLd'),
     statTime: $('statTime'), statTau: $('statTau'), statMach: $('statMach'),
+    statSt: $('statSt'), statStNote: $('statStNote'),
     canvas: $('flowCanvas'), fieldTooltip: $('fieldTooltip'),
     fieldDescription: $('fieldDescription'), fieldScaleLabel: $('fieldScaleLabel'),
     legendBar: $('legendBar'),
@@ -1153,6 +1154,15 @@
       var ma = app.state.u0 * Math.sqrt(3);
       ui.statMach.textContent = 'Ma = ' + ma.toFixed(3) + ' (cs = 0.577)';
     }
+    if (ui.statSt) {
+      var st = d.strouhal || { available: false, reason: 'estimating', cycles: 0 };
+      ui.statSt.textContent = st.available ? st.strouhal.toFixed(3) : '--';
+      if (ui.statStNote) {
+        ui.statStNote.textContent = st.available
+          ? 'f D / U, ' + st.cycles + ' cycles, amplitude ' + st.amplitude.toFixed(3)
+          : 'f D / U, ' + st.reason;
+      }
+    }
   }
 
   function renderAll(withTables) {
@@ -1214,7 +1224,7 @@
 
   function renderHealth() {
     var d = app.diag;
-    var passes = d.nonFiniteNodes === 0 && d.inletResidual < 1e-8 && !d.unstable;
+    var passes = d.nonFiniteNodes === 0 && d.inletResidual < 1e-8 && !d.unstable && d.maxMach < 0.3 && Math.abs(d.massChangeFraction) < 0.05;
     ui.solverStatus.textContent = (passes ? 'SOLVER CHECKS PASS' : 'SOLVER NEEDS ATTENTION') + ' | ' + app.state.cellCount.toLocaleString('en-US') + ' finite cells | inlet residual ' + d.inletResidual.toExponential(1) + ' | ' + d.sanitizedNodes + ' repaired nodes | peak Ma ' + d.maxMach.toFixed(3);
     ui.solverStatus.className = passes ? 'is-pass' : 'is-warning';
   }

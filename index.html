@@ -13,9 +13,7 @@
 
 <header class="report-header">
   <div class="report-title-block">
-    <div class="report-id">SPECTRALFLOW / A WIND TUNNEL IN YOUR BROWSER</div>
     <h1>See the flow. <span>Measure the physics.</span></h1>
-    <p class="report-sub">Explore lift, separation and acceleration in a live 2D wind tunnel. Inspect every lattice cell, follow the force balance, and save a state you can resume exactly.</p>
   </div>
   <div class="header-actions no-print">
     <span class="status-readout" id="offlineBadge">Runs entirely on your device</span>
@@ -29,10 +27,10 @@
 <main id="workbench" tabindex="-1">
   <nav class="showcase" aria-label="One-click wind tunnel experiments">
     <div class="showcase-heading"><strong>Start with a five-second experiment</strong><span>Real solver states. Live numerical checks.</span></div>
-    <button type="button" class="scenario" data-scenario="symmetric"><span>01 / CONTROL EXPERIMENT</span><strong>Test symmetry</strong><small>NACA 0012 at zero incidence.</small></button>
-    <button type="button" class="scenario" data-scenario="lift"><span>02 / PRESSURE TO FORCE</span><strong>Make lift visible</strong><small>Camber, incidence and a suction peak.</small></button>
-    <button type="button" class="scenario" data-scenario="wake"><span>03 / SEPARATED FLOW</span><strong>Follow the wake</strong><small>Opposite shear layers behind a cylinder.</small></button>
-    <button type="button" class="scenario" data-scenario="venturi"><span>04 / CHANNEL FLOW</span><strong>Accelerate a fluid</strong><small>Compare the inlet with the throat.</small></button>
+    <button type="button" class="scenario" data-scenario="symmetric"><span>01 / Control experiment</span><strong>Test symmetry</strong><small>NACA 0012 at zero incidence.</small></button>
+    <button type="button" class="scenario" data-scenario="lift"><span>02 / Pressure to force</span><strong>Make lift visible</strong><small>Camber, incidence and a suction peak.</small></button>
+    <button type="button" class="scenario" data-scenario="wake"><span>03 / Separated flow</span><strong>Follow the wake</strong><small>Opposite shear layers behind a cylinder.</small></button>
+    <button type="button" class="scenario" data-scenario="venturi"><span>04 / Channel flow</span><strong>Accelerate a fluid</strong><small>Compare the inlet with the throat.</small></button>
   </nav>
   <section class="health-strip" aria-label="Numerical verification"><div id="solverStatus" role="status"></div><span id="scenarioStatus" role="status">Live wind tunnel</span></section>
   <p id="errorStatus" class="error-status" role="alert" hidden></p>
@@ -108,6 +106,11 @@
         <span class="telemetry-name">BGK relaxation &tau; / &omega;</span>
         <strong class="telemetry-val" id="statTau">--</strong>
         <span class="telemetry-meta" id="statMach">Ma = --</span>
+      </div>
+      <div class="telemetry-cell">
+        <span class="telemetry-name">Strouhal number St</span>
+        <strong class="telemetry-val" id="statSt">--</strong>
+        <span class="telemetry-meta" id="statStNote">f D / U, from lift signal</span>
       </div>
     </div>
   </section>
@@ -270,6 +273,7 @@
       </div>
       <div class="math-col">
         <h3>A.3 NACA 4-Digit Normal Offset</h3>
+        <p>Every figure on this page comes from the running lattice. Explore lift, separation and acceleration, inspect any cell, follow the force balance, and save a state you can resume exactly. The simulation runs entirely on your device with no network requests.</p>
         <p>Half-thickness uses the closed trailing-edge polynomial (<code>&minus;0.1036 x<sup>4</sup></code>) and is offset perpendicular to the parabolic mean camber line <code>y<sub>c</sub>(x)</code> at local angle <code>&theta; = atan(dy<sub>c</sub>/dx)</code> across cosine-clustered stations.</p>
         <p class="formula">y<sub>t</sub> = 5t (0.2969&radic;x &minus; 0.1260x &minus; 0.3516x<sup>2</sup> + 0.2843x<sup>3</sup> &minus; 0.1036x<sup>4</sup>)</p>
       </div>

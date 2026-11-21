@@ -598,7 +598,22 @@
         }
         fs[b + q] = value;
       }
-      if (cellRepaired) clampedCells++;
+      if (cellRepaired) {
+        /* Clamping a single population injects mass and momentum. Restore the
+           cell's conserved moments by rebuilding its whole population set from
+           the pre-collision rho, ux, uy (the BGK collision conserves them). */
+        var safeRho = clamp(rho, MIN_DENSITY, MAX_DENSITY);
+        var safeSpeed = Math.hypot(ux, uy);
+        var safeUx = ux;
+        var safeUy = uy;
+        if (!isFiniteNumber(safeSpeed)) { safeUx = 0; safeUy = 0; }
+        else if (safeSpeed > MAX_LATTICE_SPEED) {
+          safeUx *= MAX_LATTICE_SPEED / safeSpeed;
+          safeUy *= MAX_LATTICE_SPEED / safeSpeed;
+        }
+        writeEquilibrium(fs, b, safeRho, safeUx, safeUy);
+        clampedCells++;
+      }
     }
     if (clampedCells > 0) {
       state.sanitizedNodes += clampedCells;
@@ -786,7 +801,10 @@
       applyOutflow(state);
       state.time += 1;
       if (state.time % 5 === 0 || state.time === 1) recordForce(state);
-      if (state.unstable && state.sanitizedNodes > state.cellCount * 4) {
+      /* Stop at the first sign of a spreading instability. A single isolated
+         repair is tolerable; 0.5% of the fluid in one step is not. */
+      var repairBudget = Math.max(32, Math.round(state.cellCount * 0.005));
+      if (state.unstable && (state.lastSanitizedNodes > repairBudget || state.sanitizedNodes > state.cellCount * 4)) {
         state.stabilityStopped = true;
         refreshMacroscopic(state, true, true);
         throw new RangeError('Numerical stability limit reached at step ' + state.time + '. Increase viscosity or lower inflow speed.');
@@ -929,6 +947,77 @@
     };
   }
 
+  /*
+   * Shedding frequency from the lift-force history. Each history sample is
+   * separated by five lattice steps. We require a minimum oscillation
+   * amplitude and at least three mean-crossings before reporting a value, so
+   * startup transients and steady attached flow never produce a false reading.
+   */
+  function computeStrouhal(state) {
+    var history = state.forceHistory || [];
+    var empty = { available: false, strouhal: null, periodSteps: null, frequency: null, cycles: 0, amplitude: 0, reason: 'estimating' };
+    if (history.length < 60) return empty;
+    /* Drop the first third of the record: the startup transient is not shedding. */
+    var start = Math.floor(history.length / 3);
+    var window = history.slice(start);
+    var values = window.map(function (e) { return e.cl; });
+    var mean = values.reduce(function (a, b) { return a + b; }, 0) / values.length;
+    var min = Math.min.apply(null, values);
+    var max = Math.max.apply(null, values);
+    var amplitude = (max - min) / 2;
+    empty.amplitude = isFiniteNumber(amplitude) ? amplitude : 0;
+    if (!isFiniteNumber(amplitude) || amplitude < 0.01 || amplitude > 2) {
+      empty.reason = amplitude < 0.01 ? 'no periodic shedding detected' : 'transient, collecting cycles';
+      return empty;
+    }
+    /* Stationarity: both halves of the window must show comparable swings. */
+    var half = Math.floor(values.length / 2);
+    var first = values.slice(0, half), second = values.slice(half);
+    var a1 = (Math.max.apply(null, first) - Math.min.apply(null, first)) / 2;
+    var a2 = (Math.max.apply(null, second) - Math.min.apply(null, second)) / 2;
+    if (a1 < 0.01 || a2 < 0.01 || Math.abs(a1 - a2) / Math.max(a1, a2) > 0.6) {
+      empty.reason = 'transient, collecting cycles';
+      return empty;
+    }
+    var crossings = [];
+    var before = values[0] - mean;
+    for (var k = 1; k < values.length; k++) {
+      var now = values[k] - mean;
+      if (before < 0 && now >= 0) {
+        var t0 = window[k - 1].step;
+        var t1 = window[k].step;
+        var frac = before === now ? 0 : -before / (now - before);
+        crossings.push(t0 + (t1 - t0) * frac);
+      }
+      before = now;
+    }
+    if (crossings.length < 4) { empty.reason = 'collecting cycles'; return empty; }
+    var periods = [];
+    for (var c = 1; c < crossings.length; c++) periods.push(crossings[c] - crossings[c - 1]);
+    var period = periods.reduce(function (a, b) { return a + b; }, 0) / periods.length;
+    var spread = Math.max.apply(null, periods) - Math.min.apply(null, periods);
+    if (!isFiniteNumber(period) || period <= 0 || period > state.cellCount || spread > period * 0.5) {
+      empty.reason = 'irregular signal, collecting cycles';
+      return empty;
+    }
+    var frequency = 1 / period;
+    var D = positiveReference(state.referenceHeight, state.referenceLength);
+    var strouhal = frequency * D / state.u0;
+    if (!isFiniteNumber(strouhal) || strouhal < 0.05 || strouhal > 0.5) {
+      empty.reason = 'outside bluff-body Strouhal range';
+      return empty;
+    }
+    return {
+      available: true,
+      strouhal: strouhal,
+      periodSteps: period,
+      frequency: frequency,
+      cycles: crossings.length - 1,
+      amplitude: amplitude,
+      reason: 'locked'
+    };
+  }
+
   function computeDiagnostics(state) {
     var n = state.cellCount;
     var fields = computeFields(state);
@@ -1000,6 +1089,7 @@
       fluxImbalanceFraction: Math.abs(inletFlux) > 1e-12 ? (inletFlux - outletFlux) / inletFlux : 0,
       inletResidual: inletResidual, nonFiniteNodes: nonFiniteNodes,
       coefficientReference: state.referenceHeight,
+      strouhal: computeStrouhal(state),
       fields: fields,
       centerline: centerlineProfile(state, fields),
       wake: wake,
@@ -1073,7 +1163,7 @@
   var SCENARIOS = {
     symmetric: { id: 'symmetric', label: 'Symmetry baseline', obstacle: 'naca0012', code: '0012', angleDeg: 0, u0: 0.06, viscosity: 0.026, chordPx: 72, field: 'cp', warmupSteps: 240, description: 'A symmetric section at zero incidence. Compare upper and lower pressure and near-zero lift.' },
     lift: { id: 'lift', label: 'Make lift visible', obstacle: 'naca2412', code: '2412', angleDeg: 8, u0: 0.07, viscosity: 0.024, chordPx: 77, field: 'cp', warmupSteps: 240, description: 'Camber and incidence build a measurable pressure difference. Inspect pressure and link forces.' },
-    wake: { id: 'wake', label: 'Follow a vortex wake', obstacle: 'cylinder', angleDeg: 0, u0: 0.085, viscosity: 0.01, chordPx: 77, field: 'curl', warmupSteps: 400, description: 'A cylinder creates separated shear layers. Probe velocity deficit and opposite vorticity signs.' },
+    wake: { id: 'wake', label: 'Follow a vortex wake', obstacle: 'cylinder', angleDeg: 0, u0: 0.085, viscosity: 0.02, chordPx: 77, field: 'curl', warmupSteps: 400, description: 'A cylinder creates separated shear layers. Probe velocity deficit and opposite vorticity signs. Stable BGK relaxation keeps the wake finite for long runs.' },
     venturi: { id: 'venturi', label: 'Accelerate through a throat', obstacle: 'venturi', angleDeg: 0, u0: 0.045, viscosity: 0.03, chordPx: 77, field: 'speed', warmupSteps: 240, description: 'A narrowing channel accelerates flow. Move the probe from inlet to throat and compare speeds.' }
   };
   function getScenario(id) { if (!Object.prototype.hasOwnProperty.call(SCENARIOS, id)) throw new RangeError('Unknown scenario: ' + id); return JSON.parse(JSON.stringify(SCENARIOS[id])); }
@@ -1298,9 +1388,12 @@
     setFlowParameters: setFlowParameters,
     initializeFlow: initializeFlow,
     refreshMacroscopic: refreshMacroscopic,
+    collide: collide,
+    stream: stream,
     stepLBM: stepLBM,
     computeFields: computeFields,
     computeForceCoefficients: computeForceCoefficients,
+    computeStrouhal: computeStrouhal,
     computeDiagnostics: computeDiagnostics,
     centerlineProfile: centerlineProfile,
     wakeProfile: wakeProfile,
