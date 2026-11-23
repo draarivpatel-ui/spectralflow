@@ -260,6 +260,65 @@
     </section>
   </div>
 
+  <section class="report-figure spectral-panel" aria-labelledby="spectralHeading">
+    <div class="figure-head">
+      <div>
+        <h2 id="spectralHeading">Choose the window. Read the trade-off.</h2>
+        <p class="figure-sub">STFT bench on deterministic test signals: five windows, one frame. A narrow main lobe resolves close tones; a deep sidelobe floor keeps a weak tone visible beside a strong one. Sample rate equals the frame length, so one bin reads as one Hz.</p>
+      </div>
+      <span class="figure-tag" id="slTag">bin = 1 Hz</span>
+    </div>
+
+    <div class="spectral-controls no-print">
+      <div class="control-field">
+        <label for="slSignal">Test signal</label>
+        <select id="slSignal">
+          <option value="pureTone" selected>Pure tone (off-bin)</option>
+          <option value="dualCloseTones">Dual close tones, 2 bins apart</option>
+          <option value="linearChirp">Linear chirp</option>
+          <option value="impulseTransient">Impulse transient</option>
+          <option value="noisyHarmonicStack">Noisy harmonic stack</option>
+        </select>
+      </div>
+      <div class="control-field">
+        <label for="slFftSize">FFT size</label>
+        <select id="slFftSize">
+          <option value="128">128</option>
+          <option value="256">256</option>
+          <option value="512" selected>512</option>
+          <option value="1024">1024</option>
+          <option value="2048">2048</option>
+        </select>
+      </div>
+      <div class="export-row spectral-actions">
+        <button type="button" id="slLinkBtn" class="btn btn-small">Copy link</button>
+        <button type="button" id="slJsonBtn" class="btn btn-small">Audit JSON</button>
+        <button type="button" id="slCsvBtn" class="btn btn-small">Audit CSV</button>
+        <button type="button" id="slMdBtn" class="btn btn-small">Audit Markdown</button>
+      </div>
+    </div>
+    <p id="slNote" class="spectral-note" role="status" aria-live="polite"></p>
+
+    <div class="chart-host spectral-chart-host">
+      <svg id="slChart" viewBox="0 0 540 280" preserveAspectRatio="xMidYMid meet" role="img" tabindex="0" aria-labelledby="slChartTitle slChartDesc">
+        <title id="slChartTitle">Window magnitude responses in dB</title>
+        <desc id="slChartDesc">Log-magnitude frequency responses of the five analysis windows, main lobe at bin zero. Rectangular has the narrowest lobe and the highest sidelobes; Blackman-Harris is the opposite. Legend items toggle each curve.</desc>
+      </svg>
+      <div id="slTooltip" class="tooltip" role="status" aria-live="off" hidden></div>
+    </div>
+    <div class="legend spectral-legend" id="slLegend" aria-label="Window response series"></div>
+
+    <div class="table-scroll spectral-table-wrap">
+      <table id="slTable"><caption>Window metrics on the current signal. Resolution measures are in DFT bins; attenuation in dB relative to the main-lobe peak.</caption></table>
+    </div>
+    <p class="spectral-note spectral-disclosure">Exports carry a SHA-256 integrity digest recomputed over the payload: an unkeyed checksum that detects edits, not a signature. Replay any audit with the same signal and FFT size to reproduce its numbers.</p>
+
+    <div class="selftest-block no-print">
+      <button type="button" id="slSelfTestBtn" class="btn">Run self-tests</button>
+      <ol id="slSelfTestResults" class="selftest-list" role="status" aria-label="Spectral lab self-test results"></ol>
+    </div>
+  </section>
+
   <section class="report-figure math-panel" aria-labelledby="mathHeading">
     <div class="figure-head">
       <h2 id="mathHeading">The mathematics behind the experiment</h2>
@@ -281,6 +340,16 @@
         <p>Half-thickness uses the closed trailing-edge polynomial (<code>&minus;0.1036 x<sup>4</sup></code>) and is offset perpendicular to the parabolic mean camber line <code>y<sub>c</sub>(x)</code> at local angle <code>&theta; = atan(dy<sub>c</sub>/dx)</code> across cosine-clustered stations.</p>
         <p class="formula">y<sub>t</sub> = 5t (0.2969&radic;x &minus; 0.1260x &minus; 0.3516x<sup>2</sup> + 0.2843x<sup>3</sup> &minus; 0.1036x<sup>4</sup>)</p>
       </div>
+      <div class="math-col">
+        <h3>B.1 Windowed DFT &amp; Parseval</h3>
+        <p>Spectral analysis multiplies the frame by a taper <code>w[n]</code> before the transform. The window's own spectrum <code>W(f)</code> is convolved into every tone: its main-lobe width sets resolution, its sidelobes set the leakage floor. The transform conserves energy exactly, so the workbench reports the residual <code>|E<sub>t</sub> &minus; E<sub>f</sub>| / E<sub>t</sub></code> per window.</p>
+        <p class="formula">X[k] = &sum; w[n]&middot;x[n]&middot;e<sup>&minus;j2&pi;kn/N</sup>, &nbsp; &sum;|x|<sup>2</sup> = (1/N)&middot;&sum;|X|<sup>2</sup></p>
+      </div>
+      <div class="math-col">
+        <h3>B.2 Resolution vs. Dynamic Range</h3>
+        <p>Coherent gain <code>CG = &sum;w/N</code> prices the amplitude derating of a bin-centred tone; noise-equivalent bandwidth <code>ENBW = N&sum;w<sup>2</sup>/(&sum;w)<sup>2</sup></code> prices the noise a bin admits. No taper escapes the uncertainty bound: sharper time support costs wider frequency support. Rectangular resolves best and leaks worst; Blackman-Harris inverts the trade.</p>
+        <p class="formula">&Delta;t&middot;&Delta;f &ge; 1/(4&pi;), &nbsp; &Delta;f<sub>rms</sub> from |W(f)|<sup>2</sup></p>
+      </div>
     </div>
   </section>
 </main>
@@ -294,6 +363,8 @@
 
 <noscript><p>Enable JavaScript to use the local wind tunnel.</p></noscript>
 <script src="cfd.js"></script>
+<script src="spectral-lab.js"></script>
 <script src="app.js"></script>
+<script src="spectral-app.js"></script>
 </body>
 </html>

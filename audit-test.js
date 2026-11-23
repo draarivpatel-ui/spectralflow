@@ -730,12 +730,13 @@ test('markup carries no inline event handler attributes', () => {
 });
 
 test('application sources contain no HTML or code injection sinks', () => {
-  const js = fs.readFileSync(path.join(HERE, 'app.js'), 'utf8') + fs.readFileSync(path.join(HERE, 'cfd.js'), 'utf8');
+  const js = ['app.js', 'cfd.js', 'spectral-lab.js', 'spectral-app.js']
+    .map(f => fs.readFileSync(path.join(HERE, f), 'utf8')).join('');
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\s*\(|new Function/);
 });
 
 test('only local assets load: no external network references in shipped sources', () => {
-  for (const file of ['index.html', 'app.js', 'cfd.js', 'style.css']) {
+  for (const file of ['index.html', 'app.js', 'cfd.js', 'spectral-lab.js', 'spectral-app.js', 'style.css']) {
     const text = fs.readFileSync(path.join(HERE, file), 'utf8');
     const refs = text.match(/https?:\/\/[^\s'"<>)]+/g) || [];
     const external = refs.filter(u => u !== 'http://www.w3.org/2000/svg');
@@ -744,7 +745,8 @@ test('only local assets load: no external network references in shipped sources'
 });
 
 test('no console logging or debugger statements remain in shipped scripts', () => {
-  const js = fs.readFileSync(path.join(HERE, 'app.js'), 'utf8') + fs.readFileSync(path.join(HERE, 'cfd.js'), 'utf8');
+  const js = ['app.js', 'cfd.js', 'spectral-lab.js', 'spectral-app.js']
+    .map(f => fs.readFileSync(path.join(HERE, f), 'utf8')).join('');
   assert.doesNotMatch(js, /console\.(log|debug|info)|debugger/);
 });
 

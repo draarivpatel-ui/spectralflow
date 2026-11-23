@@ -18,6 +18,8 @@ NACA sections use the closed trailing-edge thickness polynomial and normal offse
 
 The controller draws with local Canvas and SVG, schedules one animation loop and prepares presets in bounded batches. It reads a checkpoint back and compares all populations before offering the download. Import validation also checks whether the rounded diagnostic fields agree with the full distributions, and a SHA-256 digest signed over the whole payload rejects edits that would still look valid, such as an in-range speed change or a swapped wake sample.
 
+A standalone spectral lab runs the same offline discipline on analysis windows. A radix-2 FFT, five deterministic tapers (Rectangular, Hann, Hamming, Blackman-Harris, Kaiser beta=8) and five deterministic test signals feed a resolution/leakage comparator: main-lobe width, peak sidelobe floor, coherent gain, ENBW, Parseval residual below 1e-10, parabolic peak estimation and the sigma_t x sigma_f uncertainty bound are computed per window on the page. Audits export checksummed JSON, CSV or Markdown that can be verified and replayed, and `#sf=` links restore the bench.
+
 ## Challenges
 
 Some numerical defects looked stable on screen. Density and speed clamping could leave the populations inconsistent with the displayed moments. Automatic recovery could reset time and erase the evidence of an unstable run. Derivatives next to solids could halve a real gradient, and the requested perturbation amplitude was ignored.
@@ -43,10 +45,10 @@ The UI preserved stale SVG children by position, could schedule duplicate animat
 Verified on Node v24.16.0 with:
 
 ```sh
-node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js
+node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js spectral-test.js
 ```
 
-**205 passed, 0 failed, 0 skipped.**
+**408 passed, 0 failed, 0 skipped.**
 
 | Verification | Observed result |
 | --- | --- |
@@ -55,6 +57,11 @@ node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-te
 | DOM/controller checks | 20 tests |
 | Revamp/adversarial regressions | 16 tests |
 | Wave 3 audit checks | 73 tests |
+| Spectral lab checks | 203 tests |
+| Spectral windows compared | 5 |
+| Test signals | 5 |
+| Parseval energy residual | Below 1e-10 on every windowed frame |
+| Audit digest | SHA-256 over the payload; replay reproduces every number |
 | Browser lattice sites | 20,240 |
 | Browser checkpoint populations | 182,160 |
 | Full-field CSV data rows | 20,240 |

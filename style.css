@@ -21,6 +21,8 @@
   --series-1: #0f4c81;
   --series-2: #b8390e;
   --series-3: #126b4a;
+  --series-4: #6d4a8f;
+  --series-5: #8f6d1e;
   --seq-100: #d5e3f0;
   --seq-250: #93b7d8;
   --seq-400: #467fb2;
@@ -54,6 +56,8 @@
   --series-1: #5ba4e6;
   --series-2: #e87243;
   --series-3: #36b888;
+  --series-4: #b489d9;
+  --series-5: #d9b34a;
   --seq-100: #142a42;
   --seq-250: #1f466e;
   --seq-400: #2f6ca6;
@@ -839,6 +843,99 @@ sub, sup {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* ---------- Spectral Lab (STFT windowing bench) ---------- */
+
+.spectral-controls {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.spectral-controls .control-field {
+  min-width: 190px;
+}
+
+.spectral-actions {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.spectral-note {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.spectral-note:empty {
+  display: none;
+}
+
+.spectral-disclosure {
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.spectral-chart-host {
+  margin-top: 8px;
+}
+
+.spectral-legend {
+  margin-top: 8px;
+}
+
+.spectral-legend .legend-item {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.spectral-legend .legend-item.is-off {
+  opacity: 0.35;
+}
+
+.spectral-legend .legend-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spectral-table-wrap {
+  margin-top: 10px;
+}
+
+.selftest-block {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.selftest-list {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.selftest-list li {
+  padding: 2px 0;
+}
+
+.selftest-list .st-pass {
+  color: var(--series-3);
+  font-weight: 700;
+}
+
+.selftest-list .st-fail {
+  color: var(--series-2);
+  font-weight: 700;
 }
 
 /* ---------- Responsive ---------- */

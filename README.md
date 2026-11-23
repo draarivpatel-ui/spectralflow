@@ -39,7 +39,10 @@ Airfoil lift and drag use **chord times unit span**. Cylinders and bluff bodies 
 - Arrow keys move one cell; Shift moves ten. Home/End select the inlet/outlet. Enter pins a probe and Escape releases it.
 - Live finite-field, inlet-residual, repaired-node and peak-Mach readouts in a six-cell telemetry strip (Reynolds, mean drag, mean lift, lift-to-drag, BGK relaxation, Strouhal).
 - Chordwise Cp, wake traverse, force history, geometry and measured force trajectory plots, with accessible data tables.
+- Spectral lab: five deterministic analysis windows (Rectangular, Hann, Hamming, Blackman-Harris, Kaiser beta=8) compared on five test signals across FFT sizes 128 to 2048, with main-lobe width, peak sidelobe, coherent gain, ENBW, Parseval residual, parabolic-interpolated peak error and the sigma_t x sigma_f uncertainty product.
+- An interactive dB magnitude-response chart overlays all five windows with per-window legend toggles and a pointer probe; a self-test button replays Parseval, FFT round-trip, ordering and SHA-256 known-answer proofs live on the page.
 - Wake CSV, force CSV and a complete nine-column field CSV with one row per lattice site.
+- Spectral audits export as JSON, CSV or Markdown with a SHA-256 integrity digest and replay verification; `#sf=` URL bookmarks restore the bench state.
 - Checkpoint JSON preserves all populations, boundary modes, operating conditions and force samples. The browser verifies its round trip before download.
 - Import restores a compatible 220 by 92 checkpoint and pauses it for inspection. The engine supports other grid sizes within its memory budget.
 
@@ -58,10 +61,10 @@ The engine bounds grid allocation to 262,144 cells and coordinate sampling to 4,
 Node.js 22 or newer:
 
 ```sh
-node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js
+node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js spectral-test.js
 ```
 
-**205 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 29 numerical/export regressions, 20 DOM/controller checks, 16 revamp/adversarial regressions and 73 Wave 3 audit checks (SHA-256 checkpoint integrity, conservation stencils, fail-closed clamps, NACA invariants, obstacle symmetry, Strouhal edges, adversarial checkpoint defenses, WCAG 2.1.4 shortcut toggle, CSP and injection fences).
+**408 tests passed, 0 failed, 0 skipped:** 67 base engine checks, 29 numerical/export regressions, 20 DOM/controller checks, 16 revamp/adversarial regressions, 73 Wave 3 audit checks (SHA-256 checkpoint integrity, conservation stencils, fail-closed clamps, NACA invariants, obstacle symmetry, Strouhal edges, adversarial checkpoint defenses, WCAG 2.1.4 shortcut toggle, CSP and injection fences) and 203 spectral-lab checks (FFT/DFT agreement, Parseval conservation at every size, published window constants, sidelobe ordering, dual-tone resolution, uncertainty bound, audit digest tamper and replay forgery, bookmark codec, controller DOM checks).
 
 Coverage includes lattice isotropy, equilibrium mass and momentum, NACA symmetry, positive/negative incidence trends, solid and inlet boundary behavior, Venturi acceleration, bounded force history, analytic gradients, coherent repair, finite CSV schemas, strict checkpoint validation, exact resumed evolution and every showcase scenario.
 
@@ -91,9 +94,12 @@ A telemetry-only JSON export can omit populations or heavy fields. Only a comple
 | --- | --- |
 | `cfd.js` | Geometry, solver, boundaries, fields, pressure integration, scenarios and exporters |
 | `app.js` | Animation scheduling, controls, plots, probes and checkpoint workflow |
+| `spectral-lab.js` | Radix-2 FFT, analysis windows, test signals, leakage/resolution metrics, checksummed audit export and bookmarks |
+| `spectral-app.js` | Spectral bench controller: response chart, metrics table, audit downloads and self-test panel |
 | `index.html`, `style.css` | Responsive laboratory, themes and accessible controls |
 | `test.js`, `regression-test.js` | Physics, numerical, schema and resumed-evolution checks |
 | `ui-test.js`, `revamp-test.js`, `audit-test.js`, `dom-harness.js` | Actual controller, revamp and Wave 3 audit tests with deterministic DOM/canvas adapters |
+| `spectral-test.js` | Spectral lab checks: transform correctness, window invariants, audit tamper/replay and controller DOM |
 
 ## Scope and next steps
 
