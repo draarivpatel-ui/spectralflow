@@ -67,7 +67,18 @@
 
   /* In-place iterative Cooley-Tukey on parallel re/im arrays. */
   function fftInPlace(re, im) {
+    if (!re || !im || re.length !== im.length) {
+      throw new RangeError('FFT real and imaginary arrays must have equal length');
+    }
     var n = re.length;
+    if (!Number.isSafeInteger(n) || n < 2 || (n & (n - 1)) !== 0) {
+      throw new RangeError('FFT array length must be a power of two of at least 2');
+    }
+    for (var q = 0; q < n; q++) {
+      if (!isFiniteNumber(re[q]) || !isFiniteNumber(im[q])) {
+        throw new RangeError('FFT input contains a nonfinite coefficient at ' + q);
+      }
+    }
     var j = 0;
     for (var i = 1; i < n; i++) {
       var bit = n >> 1;
@@ -572,6 +583,14 @@
     if (!payload || payload.format !== 'spectralflow-spectral-audit' || payload.schemaVersion !== 1) {
       throw new RangeError('Unsupported spectral audit schema');
     }
+    var allowedKeys = AUDIT_SIGNED_KEYS.concat(['integrity']);
+    var unexpected = Object.keys(payload).filter(function (key) { return allowedKeys.indexOf(key) < 0; });
+    if (unexpected.length) {
+      throw new RangeError('Audit contains unsigned extra fields: ' + unexpected.join(', '));
+    }
+    if (!payload.params || typeof payload.params !== 'object' || !Array.isArray(payload.results)) {
+      throw new RangeError('Missing or malformed audit params or results');
+    }
     var integrity = payload.integrity;
     if (!integrity || integrity.algorithm !== 'SHA-256' || integrity.scope !== 'full-audit' ||
         typeof integrity.digest !== 'string' || !/^[0-9a-f]{64}$/.test(integrity.digest)) {
@@ -738,6 +757,9 @@
   }
 
   function encodeBookmark(state) {
+    if (!state || typeof state !== 'object') throw new RangeError('Spectral bookmark state is required');
+    if (typeof state.signal !== 'string' || !SIGNAL_DEFS[state.signal]) throw new RangeError('Unknown signal in spectral bookmark state');
+    if (FFT_SIZES.indexOf(state.fftSize) < 0) throw new RangeError('Invalid FFT size in spectral bookmark state');
     var payload = { v: 1, sig: state.signal, n: state.fftSize };
     var b64 = b64EncodeBytes(utf8Encode(JSON.stringify(payload)));
     return 'sf=' + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

@@ -328,10 +328,6 @@
 
   function fileTag() { return state.signal + '-n' + state.fftSize; }
 
-  function auditStamp() {
-    try { return new Date().toISOString(); } catch (e) { return null; }
-  }
-
   /* ---------------- Events ---------------- */
 
   ui.signal.addEventListener('change', function () { applyAndRender('change'); });
@@ -348,7 +344,7 @@
 
   ui.jsonBtn.addEventListener('click', function () {
     download('spectralflow-audit-' + fileTag() + '.json',
-      SL.exportAuditJSON(state.comparison, auditStamp()), 'application/json');
+      SL.exportAuditJSON(state.comparison), 'application/json');
     announce('Spectral audit JSON downloaded with SHA-256 digest.');
   });
   ui.csvBtn.addEventListener('click', function () {
@@ -358,7 +354,7 @@
   });
   ui.mdBtn.addEventListener('click', function () {
     download('spectralflow-audit-' + fileTag() + '.md',
-      SL.exportAuditMarkdown(state.comparison, auditStamp()), 'text/markdown');
+      SL.exportAuditMarkdown(state.comparison), 'text/markdown');
     announce('Spectral audit Markdown downloaded.');
   });
   ui.linkBtn.addEventListener('click', function () {

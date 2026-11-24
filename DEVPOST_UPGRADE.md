@@ -48,7 +48,7 @@ Verified on Node v24.16.0 with:
 node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js spectral-test.js
 ```
 
-**408 passed, 0 failed, 0 skipped.**
+**412 passed, 0 failed, 0 skipped.**
 
 | Verification | Observed result |
 | --- | --- |

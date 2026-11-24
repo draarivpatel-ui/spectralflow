@@ -591,7 +591,7 @@ test('replay recomputes the audit numbers identically', () => {
 });
 
 test('a self-consistent forgery passes the digest but fails the replay', () => {
-  /* An attacker can recompute our unkeyed checksum — the replay defence is
+  /* An attacker can recompute our unkeyed checksum; the replay defence is
      that the numbers must come from the actual engine. */
   const p = audit();
   p.results[0].peakSidelobeDb = -12.34;
@@ -880,4 +880,36 @@ test('spectral sources make zero external references', () => {
     const external = refs.filter(u => u !== 'http://www.w3.org/2000/svg');
     assert.deepEqual(external, [], `${file} references ${external.join(', ')}`);
   }
+});
+
+test('ifft validates spectrum shape and finite coefficients', () => {
+  assert.throws(() => L.ifft({ re: new Float64Array(8), im: new Float64Array(4) }), RangeError);
+  const re = new Float64Array(8), im = new Float64Array(8);
+  re[2] = NaN;
+  assert.throws(() => L.ifft({ re, im }), RangeError);
+});
+
+test('encodeBookmark validates state instead of emitting an unusable bookmark', () => {
+  assert.throws(() => L.encodeBookmark({ signal: 'bad', fftSize: 256 }), RangeError);
+  assert.throws(() => L.encodeBookmark({ signal: 'pureTone', fftSize: 12 }), RangeError);
+  assert.throws(() => L.encodeBookmark(null), RangeError);
+});
+
+test('verifySpectralAudit rejects malformed result payloads and unsigned extra fields', () => {
+  const p = audit();
+  p.results = null;
+  p.integrity.digest = L.auditDigest(p);
+  assert.throws(() => L.verifySpectralAudit(p), RangeError);
+
+  const extra = audit();
+  extra.unsignedNote = 'edited outside the digest';
+  extra.integrity.digest = L.auditDigest(extra);
+  assert.throws(() => L.verifySpectralAudit(extra), /unsigned|extra|unexpected/i);
+});
+
+test('browser audit downloads omit wall-clock generatedAt for deterministic exports', () => {
+  const src = fs.readFileSync(path.join(HERE, 'spectral-app.js'), 'utf8');
+  assert.doesNotMatch(src, /auditStamp|new Date\(\)\.toISOString/);
+  assert.match(src, /exportAuditJSON\(state\.comparison\)/);
+  assert.match(src, /exportAuditMarkdown\(state\.comparison\)/);
 });
