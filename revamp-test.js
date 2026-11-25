@@ -198,5 +198,5 @@ test('README test count matches the verified suite total', () => {
   const readme = fs.readFileSync(path.join(HERE, 'README.md'), 'utf8');
   const match = /(\d+) tests passed, 0 failed, 0 skipped/.exec(readme);
   assert.ok(match, 'README must state the verified passing test count');
-  assert.equal(Number(match[1]), 408, `README says ${match[1]}, expected 408`);
+  assert.equal(Number(match[1]), 412, `README says ${match[1]}, expected 412`);
 });

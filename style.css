@@ -1067,6 +1067,7 @@ main { border:0; background:transparent; gap:18px; }
 .section-bar { padding:14px 18px; }
 .control-grid { padding:18px; grid-template-columns:repeat(6,minmax(0,1fr)); }
 .control-field { min-width:0; }
+.control-field:first-child { grid-column:span 2; }
 .control-field > label { font-size:11px; }
 .control-field select,.control-field input[type="text"] { min-height:40px; font-size:11px; border-radius:5px; border-color:var(--border); }
 .control-field input[type="range"] { height:30px; }
