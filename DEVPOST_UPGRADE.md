@@ -42,20 +42,20 @@ The UI preserved stale SVG children by position, could schedule duplicate animat
 
 ## Verification numbers
 
-Verified on Node v24.16.0 with:
+Verified on Node v26.8.1 with:
 
 ```sh
 node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-test.js audit-test.js spectral-test.js
 ```
 
-**412 passed, 0 failed, 0 skipped.**
+**413 passed, 0 failed, 0 skipped.**
 
 | Verification | Observed result |
 | --- | --- |
 | Base physics and export checks | 67 tests |
 | Numerical and checkpoint regressions | 29 tests |
 | DOM/controller checks | 20 tests |
-| Revamp/adversarial regressions | 16 tests |
+| Revamp/adversarial regressions | 17 tests |
 | Wave 3 audit checks | 73 tests |
 | Spectral lab checks | 207 tests |
 | Spectral windows compared | 5 |
