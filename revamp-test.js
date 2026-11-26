@@ -194,9 +194,24 @@ test('controller renders a Strouhal readout and healthy wake after preset click'
   h.dispose();
 });
 
+test('touch controls meet 44 px and print hides interactive controls', () => {
+  const css = fs.readFileSync(path.join(HERE, 'style.css'), 'utf8');
+  assert.ok(css.includes('button,\ninput:not([type="hidden"]),\nselect,\ntextarea,\nsummary {\n  min-height: 44px;'));
+  assert.match(css, /\.btn \{ min-height:44px;/);
+  assert.match(css, /\.btn-small \{ min-height:44px;/);
+  assert.match(css, /\.seg \{ min-height:44px;/);
+  assert.match(css, /\.control-field input\[type="range"\] \{ height:44px; \}/);
+  const printStart = css.indexOf('@media print {');
+  const printEnd = css.indexOf('\n}\n\n/* Experiment-first', printStart);
+  assert.ok(printStart >= 0 && printEnd > printStart);
+  const printCss = css.slice(printStart, printEnd);
+  assert.match(printCss, /\.control-grid,/);
+  assert.match(printCss, /\.spectral-legend,/);
+});
+
 test('README test count matches the verified suite total', () => {
   const readme = fs.readFileSync(path.join(HERE, 'README.md'), 'utf8');
   const match = /(\d+) tests passed, 0 failed, 0 skipped/.exec(readme);
   assert.ok(match, 'README must state the verified passing test count');
-  assert.equal(Number(match[1]), 412, `README says ${match[1]}, expected 412`);
+  assert.equal(Number(match[1]), 413, `README says ${match[1]}, expected 413`);
 });

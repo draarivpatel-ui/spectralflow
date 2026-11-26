@@ -147,6 +147,19 @@ code, .formula {
   outline-offset: 2px;
 }
 
+button,
+input:not([type="hidden"]),
+select,
+textarea,
+summary {
+  min-height: 44px;
+}
+
+button,
+summary {
+  min-width: 44px;
+}
+
 /* ---------- Report Header ---------- */
 
 .report-header {
@@ -997,6 +1010,8 @@ sub, sup {
     font-size: 9.5pt;
   }
   .no-print,
+  .control-grid,
+  .spectral-legend,
   .skip-link,
   #liveStatus,
   .field-tooltip,
@@ -1047,10 +1062,10 @@ h3 { font-family:var(--sans); font-size:13px; }
 .header-actions { max-width:250px; gap:8px; }
 .status-readout { padding:0; border:0; background:none; width:100%; color:var(--text-muted); font-size:11px; }
 main { border:0; background:transparent; gap:18px; }
-.btn { min-height:40px; border-radius:6px; border-color:var(--border); font-family:var(--sans); font-size:12px; padding:8px 12px; }
+.btn { min-height:44px; border-radius:6px; border-color:var(--border); font-family:var(--sans); font-size:12px; padding:8px 12px; }
 .btn:hover { border-color:var(--accent); }
 .btn-primary { border-color:var(--accent); }
-.btn-small { min-height:36px; font-size:11px; }
+.btn-small { min-height:44px; font-size:11px; }
 .showcase { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
 .showcase-heading { grid-column:1/-1; display:flex; gap:10px; justify-content:space-between; margin-bottom:4px; }
 .showcase-heading strong { font-size:14px; }
@@ -1069,8 +1084,8 @@ main { border:0; background:transparent; gap:18px; }
 .control-field { min-width:0; }
 .control-field:first-child { grid-column:span 2; }
 .control-field > label { font-size:11px; }
-.control-field select,.control-field input[type="text"] { min-height:40px; font-size:11px; border-radius:5px; border-color:var(--border); }
-.control-field input[type="range"] { height:30px; }
+.control-field select,.control-field input[type="text"] { min-height:44px; font-size:11px; border-radius:5px; border-color:var(--border); }
+.control-field input[type="range"] { height:44px; }
 .telemetry-cell { padding:14px 18px; }
 .telemetry-val { font-size:24px; }
 .telemetry-name { font-size:11px; }
@@ -1080,7 +1095,7 @@ main { border:0; background:transparent; gap:18px; }
 .figure-sub { font-size:11px; line-height:1.6; max-width:70ch; }
 .figure-tag,.scale-caption { border-radius:4px; border-color:var(--border); font-size:10px; }
 .segmented { display:flex; flex-wrap:wrap; border-radius:5px; overflow:hidden; border-color:var(--border); }
-.seg { min-height:36px; padding:8px 12px; font:11px var(--sans); }
+.seg { min-height:44px; padding:8px 12px; font:11px var(--sans); }
 .tunnel-frame { border-color:var(--border); border-radius:7px; overflow:hidden; }
 .tunnel-rulers-top { font-size:10px; padding:8px 12px; gap:12px; }
 .probe-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:14px; }
@@ -1089,7 +1104,7 @@ main { border:0; background:transparent; gap:18px; }
 .chart-host,.section-figure { border-radius:6px; overflow:hidden; }
 .chart-host svg { touch-action:pan-y; }
 .plot-matrix { gap:18px; }
-.table-details > summary { min-height:32px; padding-top:8px; font-size:11px; }
+.table-details > summary { min-height:44px; padding-top:8px; font-size:11px; }
 .table-scroll { border-radius:5px; }
 .spec-list { font-size:11px; border-radius:5px; }
 .spec-row { flex-wrap:wrap; }
