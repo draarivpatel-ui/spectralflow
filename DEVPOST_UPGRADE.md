@@ -57,7 +57,7 @@ node --test --test-reporter=spec test.js regression-test.js ui-test.js revamp-te
 | DOM/controller checks | 20 tests |
 | Revamp/adversarial regressions | 16 tests |
 | Wave 3 audit checks | 73 tests |
-| Spectral lab checks | 203 tests |
+| Spectral lab checks | 207 tests |
 | Spectral windows compared | 5 |
 | Test signals | 5 |
 | Parseval energy residual | Below 1e-10 on every windowed frame |
