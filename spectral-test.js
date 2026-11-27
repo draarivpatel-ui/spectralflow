@@ -794,7 +794,7 @@ test('copy link writes a restorable #sf= bookmark', () => {
 test('a valid #sf= bookmark restores the bench on boot', () => {
   const hash = '#' + L.encodeBookmark({ signal: 'dualCloseTones', fftSize: 1024 });
   const h = boot(HERE, {
-    beforeBoot: ({ sandbox }) => { sandbox.location = { hash, origin: 'https://aariv.me', pathname: '/spectralflow/' }; }
+    beforeBoot: ({ sandbox }) => { sandbox.location = { hash, origin: 'https://aariv.xyz', pathname: '/spectralflow/' }; }
   });
   assert.equal(h.get('slSignal').value, 'dualCloseTones');
   assert.equal(h.get('slFftSize').value, '1024');
