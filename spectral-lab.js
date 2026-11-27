@@ -27,6 +27,10 @@
   var MAX_FFT_SIZE = 4096;
   var MIN_FFT_SIZE = 8;
 
+  function ownValue(table, key) {
+    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : null;
+  }
+
   /* Sample rate equals the frame length, so one DFT bin is exactly 1 Hz and
      bin offsets read directly as Hertz in the workbench. */
   function sampleRateFor(n) { return n; }
@@ -218,7 +222,7 @@
   var WINDOW_KEYS = Object.keys(WINDOW_DEFS);
 
   function windowSamples(name, n) {
-    var def = WINDOW_DEFS[name];
+    var def = ownValue(WINDOW_DEFS, name);
     if (!def) throw new RangeError('Unknown window: ' + name);
     if (!Number.isSafeInteger(n) || n < 2 || n > MAX_FFT_SIZE) throw new RangeError('Window length out of range');
     var w = new Float64Array(n);
@@ -450,7 +454,7 @@
   }
 
   function testSignal(name, n) {
-    var def = SIGNAL_DEFS[name];
+    var def = ownValue(SIGNAL_DEFS, name);
     if (!def) throw new RangeError('Unknown signal: ' + name);
     validateLength(n);
     return def.gen(n, sampleRateFor(n));
@@ -475,7 +479,7 @@
     var peakHz = peakBin * fs / n;
     var result = {
       window: name,
-      label: WINDOW_DEFS[name].label,
+      label: ownValue(WINDOW_DEFS, name).label,
       coherentGain: coherentGain(w),
       enbwBins: enbwBins(w),
       mainLobeWidthBins: mainLobeWidthDb3(name, n),
@@ -503,7 +507,7 @@
     }
     return {
       signal: signalName,
-      signalLabel: SIGNAL_DEFS[signalName].label,
+      signalLabel: ownValue(SIGNAL_DEFS, signalName).label,
       fftSize: n,
       sampleRate: sig.params.fs,
       params: sig.params,
@@ -758,7 +762,7 @@
 
   function encodeBookmark(state) {
     if (!state || typeof state !== 'object') throw new RangeError('Spectral bookmark state is required');
-    if (typeof state.signal !== 'string' || !SIGNAL_DEFS[state.signal]) throw new RangeError('Unknown signal in spectral bookmark state');
+    if (typeof state.signal !== 'string' || !ownValue(SIGNAL_DEFS, state.signal)) throw new RangeError('Unknown signal in spectral bookmark state');
     if (FFT_SIZES.indexOf(state.fftSize) < 0) throw new RangeError('Invalid FFT size in spectral bookmark state');
     var payload = { v: 1, sig: state.signal, n: state.fftSize };
     var b64 = b64EncodeBytes(utf8Encode(JSON.stringify(payload)));
@@ -778,7 +782,7 @@
       throw new RangeError('Malformed spectral bookmark');
     }
     if (!payload || payload.v !== 1) throw new RangeError('Unsupported spectral bookmark version');
-    if (typeof payload.sig !== 'string' || !SIGNAL_DEFS[payload.sig]) throw new RangeError('Unknown signal in spectral bookmark');
+    if (typeof payload.sig !== 'string' || !ownValue(SIGNAL_DEFS, payload.sig)) throw new RangeError('Unknown signal in spectral bookmark');
     if (FFT_SIZES.indexOf(payload.n) < 0) throw new RangeError('Invalid FFT size in spectral bookmark');
     var extra = Object.keys(payload).filter(function (k) { return ['v', 'sig', 'n'].indexOf(k) < 0; });
     if (extra.length) throw new RangeError('Unknown fields in spectral bookmark: ' + extra.join(', '));
@@ -903,7 +907,7 @@
     besselI0: besselI0,
     windowSamples: windowSamples,
     windowResponseDb: windowResponseDb,
-    windowLabel: function (name) { var d = WINDOW_DEFS[name]; return d ? d.label : name; },
+    windowLabel: function (name) { var d = ownValue(WINDOW_DEFS, name); return d ? d.label : name; },
     coherentGain: coherentGain,
     enbwBins: enbwBins,
     mainLobeWidthDb3: mainLobeWidthDb3,
@@ -912,7 +916,7 @@
     heisenbergProduct: heisenbergProduct,
     parabolicPeak: parabolicPeak,
     testSignal: testSignal,
-    signalLabel: function (name) { var d = SIGNAL_DEFS[name]; return d ? d.label : name; },
+    signalLabel: function (name) { var d = ownValue(SIGNAL_DEFS, name); return d ? d.label : name; },
     sampleRateFor: sampleRateFor,
     analyze: analyze,
     runComparison: runComparison,

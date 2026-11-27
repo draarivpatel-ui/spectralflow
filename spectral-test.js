@@ -683,6 +683,12 @@ test('parseBookmark fails closed on every malformed field', () => {
   assert.throws(() => L.parseBookmark('#' + withPayload(p => ({ ...p, sig: 'sine' }))), /signal/);
   assert.throws(() => L.parseBookmark('#' + withPayload(p => ({ ...p, n: 384 }))), /FFT size/);
   assert.throws(() => L.parseBookmark('#' + withPayload(p => ({ ...p, admin: true }))), /Unknown fields/);
+  for (const inherited of ['__proto__', 'constructor', 'toString']) {
+    assert.throws(() => L.parseBookmark('#' + withPayload(p => ({ ...p, sig: inherited }))), /signal/);
+    assert.throws(() => L.encodeBookmark({ signal: inherited, fftSize: 512 }), /Unknown signal/);
+    assert.throws(() => L.testSignal(inherited, 128), /Unknown signal/);
+    assert.throws(() => L.windowSamples(inherited, 128), /Unknown window/);
+  }
 });
 
 /* ---------------- Self-tests ---------------- */
